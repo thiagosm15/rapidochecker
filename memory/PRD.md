@@ -1,0 +1,26 @@
+# AutoCorrida – PRD
+
+## Problem statement
+"Crie um aplicativo mobile: que aceite sozinho as corridas do aplicativo rapidocar de acordo com filtro ajustável de preço/km"
+Follow-up: "Adicione ao bot para ele ficar off-line na rapidocar sempre que aceite uma corrida na 99, e fique online quando a corrida acabar."
+
+## Architecture
+- Expo Router app (4 tabs: Painel, Filtros, Simular, Histórico), dark utility theme (Rajdhani + IBM Plex Sans)
+- FastAPI + MongoDB: /api/settings, /api/simulate, /api/rides, /api/rides/bulk, /api/stats
+- Local Expo native module `modules/ride-filter` (Android only, Kotlin):
+  - RideAccessibilityService reads RapidoCar screen (R$ and km), checks filters, taps "Aceitar"
+  - 99 sync: detects ride in progress/ended on the 99 app (configurable texts), opens RapidoCar, taps offline/online, returns to 99
+  - Events stored in SharedPreferences and synced to the backend when the Painel opens
+- On Expo Go / web, the native module is absent → "Modo prévia" + Simulator
+
+## Implemented (2026-06)
+- Auto-accept switch, accessibility service status + button to open settings
+- Filters: min R$/km, min fare, max pickup km, editable accept texts, target package
+- 99 integration toggle + editable texts (ride active/end, offline/online buttons)
+- Simulator with ACEITO/RECUSADO stamp, history with filter chips, daily earnings / acceptance rate
+- Does not auto-accept on RapidoCar while a 99 ride is in progress
+
+## Backlog
+- P0: Validate on a real Android APK with the real RapidoCar/99 texts and adjust defaults
+- P1: Per-device settings (multi-user), working-hours schedule, minimum price per minute
+- P2: Weekly earnings chart, sound alert on accept

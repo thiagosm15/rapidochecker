@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "frontend",
+    "name": "AutoCorrida",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.emergent.corridafiltro.ppgip8"
@@ -14,7 +14,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#0F1115"
       },
       "package": "com.emergent.corridafiltro.ppgip8"
     },
@@ -38,7 +38,8 @@
       "expo-image",
       "expo-secure-store",
       "expo-web-browser",
-      "expo-status-bar"
+      "expo-status-bar",
+      "@react-native-vector-icons/ionicons"
     ],
     "experiments": {
       "typedRoutes": true
