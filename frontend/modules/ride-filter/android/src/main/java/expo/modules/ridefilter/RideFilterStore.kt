@@ -17,9 +17,17 @@ object RideFilterStore {
   fun prefs(context: Context): SharedPreferences =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+  @Volatile private var cachedRaw: String? = null
+  @Volatile private var cachedConfig: JSONObject? = null
+
+  /** Parsed once per change (not on every accessibility event) for speed. */
   fun config(context: Context): JSONObject? {
     val raw = prefs(context).getString(KEY_CONFIG, null) ?: return null
-    return try { JSONObject(raw) } catch (e: Exception) { null }
+    if (raw == cachedRaw) return cachedConfig
+    val parsed = try { JSONObject(raw) } catch (e: Exception) { null }
+    cachedRaw = raw
+    cachedConfig = parsed
+    return parsed
   }
 
   fun isBusy99(context: Context): Boolean = prefs(context).getBoolean(KEY_BUSY_99, false)

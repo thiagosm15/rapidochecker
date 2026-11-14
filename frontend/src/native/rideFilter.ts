@@ -41,6 +41,9 @@ const mod = Platform.OS === "android" ? requireOptionalNativeModule<RideFilterNa
 
 export const nativeAvailable = !!mod;
 
+// Set once the driver accepts the in-app accessibility disclosure (app/aviso.tsx).
+export const DISCLOSURE_KEY = "a11y_disclosure_ok";
+
 export function pushConfig(s: Settings) {
   mod?.setConfig(JSON.stringify(s));
 }
@@ -61,4 +64,13 @@ export function takePendingEvents(): RideIn[] {
 
 export function clearPendingEvents() {
   mod?.clearPendingEvents();
+}
+
+/** On logout: stop the service from acting with the previous driver's settings. */
+export function resetNativeForLogout() {
+  if (!mod) return;
+  mod.setConfig(JSON.stringify({ auto_accept: false, sync_99_enabled: false }));
+  mod.clearPendingEvents();
+  mod.resetBusy99();
+  mod.setLearning(false);
 }

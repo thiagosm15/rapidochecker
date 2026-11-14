@@ -74,6 +74,41 @@ class RideAccessibilityService : AccessibilityService() {
 
   override fun onInterrupt() {}
 
+  companion object {
+    @Volatile var instance: RideAccessibilityService? = null
+  }
+
+  override fun onServiceConnected() {
+    super.onServiceConnected()
+    instance = this
+    applyPackageFilter()
+  }
+
+  override fun onDestroy() {
+    instance = null
+    super.onDestroy()
+  }
+
+  /**
+   * Speed: ask Android to deliver events ONLY from RapidoCar (and 99 when sync is on),
+   * so the service never wastes time on other apps. Called on connect and on every config change.
+   */
+  fun applyPackageFilter() {
+    handler.post {
+      val cfg = RideFilterStore.config(this) ?: return@post
+      val target = cfg.optString("target_package", "rapido").trim().lowercase()
+      val p99 = cfg.optString("ninety_nine_package", "app99").trim().lowercase()
+      val pkgs = mutableListOf<String>()
+      findLaunchablePackage(target)?.let { pkgs.add(it) }
+      if (cfg.optBoolean("sync_99_enabled", false)) findLaunchablePackage(p99)?.let { pkgs.add(it) }
+      val info = serviceInfo ?: return@post
+      // If nothing matched (app not installed / wrong name), listen to all apps so nothing is missed.
+      info.packageNames = if (pkgs.isEmpty()) null else pkgs.toTypedArray()
+      info.notificationTimeout = 0
+      serviceInfo = info
+    }
+  }
+
   // ---------------- 99 sync ----------------
 
   private fun handle99(pkg99: String, cfg: JSONObject) {

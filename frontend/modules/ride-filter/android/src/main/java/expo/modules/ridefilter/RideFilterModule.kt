@@ -14,7 +14,8 @@ class RideFilterModule : Module() {
     Name("RideFilter")
 
     Function("setConfig") { json: String ->
-      RideFilterStore.prefs(context).edit().putString(RideFilterStore.KEY_CONFIG, json).apply()
+      RideFilterStore.prefs(context).edit().putString(RideFilterStore.KEY_CONFIG, json).commit()
+      RideAccessibilityService.instance?.applyPackageFilter()
     }
 
     Function("isServiceEnabled") {

@@ -31,3 +31,10 @@ Follow-up: "Adicione ao bot para ele ficar off-line na rapidocar sempre que acei
 - Weekly chart on Painel (/api/stats/weekly?tz=)
 - Sound + vibration alert on auto-accept (alert_enabled), native only
 - User asked for an APK: build via Publish → Android build
+
+## Update (2026-06, iteration 4-5)
+- JWT login per driver (email/password, 30-day token, 5 failed logins/15 min lockout), data scoped by user_id; pre-login data migrated to the first account
+- Accessibility disclosure screen (/aviso) before enabling the service; privacy policy at /api/privacy; account screen (logout, clear history, delete account)
+- Monthly report (/relatorio, /api/stats/monthly)
+- Logout resets native service config; Stack.Protected auth gating
+- Speed: notificationTimeout=0, events filtered to RapidoCar/99 packages only, cached config parsing

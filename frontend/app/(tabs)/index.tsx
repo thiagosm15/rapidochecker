@@ -13,6 +13,7 @@ import { ErrorState, LoadingState } from "@/src/components/StateViews";
 import { fonts } from "@/src/fonts";
 import {
   clearPendingEvents,
+  DISCLOSURE_KEY,
   getSyncState,
   isServiceEnabled,
   nativeAvailable,
@@ -23,6 +24,8 @@ import {
   takePendingEvents,
 } from "@/src/native/rideFilter";
 import { usesNativeTabs } from "@/src/navigation";
+import { useAuth } from "@/src/auth";
+import { storage } from "@/src/utils/storage";
 import { WeeklyChart } from "@/src/components/WeeklyChart";
 import { inSchedule, nextStartLabel, scheduleSummary } from "@/src/schedule";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -34,6 +37,12 @@ export default function Painel() {
   const styles = useStyles();
   const router = useRouter();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const activateService = async () => {
+    const ok = await storage.getItem<boolean>(DISCLOSURE_KEY, false);
+    if (ok) openAccessibilitySettings();
+    else router.push("/aviso");
+  };
   const settings = useSettings();
   const stats = useStats();
   const update = useUpdateSettings();
@@ -111,7 +120,15 @@ export default function Painel() {
 
   return (
     <View style={styles.screen} testID="painel-screen">
-      <ScreenHeader title="Painel" subtitle="Auto-aceite de corridas RapidoCar" />
+      <ScreenHeader
+        title="Painel"
+        subtitle={user?.name ? `Olá, ${user.name.split(" ")[0]}` : "Auto-aceite de corridas RapidoCar"}
+        right={
+          <Pressable testID="open-account-button" onPress={() => router.push("/conta")} style={styles.accountBtn} hitSlop={6}>
+            <Ionicons name="person-circle-outline" size={30} color={colors.onSurfaceSecondary} />
+          </Pressable>
+        }
+      />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 24 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
@@ -123,7 +140,7 @@ export default function Painel() {
             <Text style={styles.bannerText}>{banner.text}</Text>
           </View>
           {nativeAvailable && !serviceOn ? (
-            <Pressable testID="open-accessibility-settings-button" onPress={openAccessibilitySettings} style={[styles.bannerBtn, { backgroundColor: toneColor }]}>
+            <Pressable testID="open-accessibility-settings-button" onPress={activateService} style={[styles.bannerBtn, { backgroundColor: toneColor }]}>
               <Text style={styles.bannerBtnText}>Ativar</Text>
             </Pressable>
           ) : null}
@@ -235,6 +252,14 @@ export default function Painel() {
           </View>
         </View>
         <WeeklyChart />
+        <Pressable testID="open-monthly-report-button" onPress={() => router.push("/relatorio")} style={styles.reportBtn}>
+          <Ionicons name="stats-chart" size={20} color={colors.brandPrimary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.reportTitle}>Relatório do mês</Text>
+            <Text style={styles.reportText}>Ganhos, km e os melhores horários para rodar</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -278,6 +303,10 @@ const useStyles = makeStyles((c) => ({
   summaryLabel: { fontFamily: fonts.body, fontSize: 11, color: c.onSurfaceSecondary },
   summaryValue: { fontFamily: fonts.display, fontSize: 20, color: c.onSurface },
   vDivider: { width: 1, alignSelf: "stretch", backgroundColor: c.border },
+  accountBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  reportBtn: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 64, padding: 12, borderRadius: 12, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border },
+  reportTitle: { fontFamily: fonts.bodySemi, fontSize: 15, color: c.onSurface },
+  reportText: { fontFamily: fonts.body, fontSize: 12, color: c.onSurfaceSecondary },
   schedulePill: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 12, borderRadius: 8, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border },
   scheduleText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 13, color: c.onSurfaceTertiary },
   syncCard: { backgroundColor: c.surfaceSecondary, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: c.border, gap: 8 },

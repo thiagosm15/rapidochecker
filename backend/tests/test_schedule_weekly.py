@@ -17,8 +17,15 @@ SCHED_REASON = "Fora do horário de trabalho"
 def s():
     sess = requests.Session()
     sess.headers.update({"Content-Type": "application/json"})
+    # auth: each run uses a throwaway TEST_ driver (deleted at teardown with all its data)
+    import uuid
+    reg = sess.post(f"{API}/auth/register", json={"name": "TEST_Reg", "email": f"test_{uuid.uuid4().hex[:10]}@example.com", "password": "testpass123"})
+    assert reg.status_code == 201, reg.text
+    sess.headers["Authorization"] = f"Bearer {reg.json()['access_token']}"
     orig = sess.get(f"{API}/settings").json()
     yield sess
+    sess.delete(f"{API}/auth/account")
+    return
     orig.pop("id", None); orig.pop("key", None)
     orig.update({"auto_accept": False, "sync_99_enabled": False, "schedule_enabled": False, "alert_enabled": True})
     sess.put(f"{API}/settings", json=orig)

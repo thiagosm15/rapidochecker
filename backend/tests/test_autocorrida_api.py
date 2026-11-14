@@ -13,9 +13,16 @@ API = f"{BASE_URL}/api"
 def s():
     sess = requests.Session()
     sess.headers.update({"Content-Type": "application/json"})
+    # auth: each run uses a throwaway TEST_ driver (deleted at teardown with all its data)
+    import uuid
+    reg = sess.post(f"{API}/auth/register", json={"name": "TEST_Reg", "email": f"test_{uuid.uuid4().hex[:10]}@example.com", "password": "testpass123"})
+    assert reg.status_code == 201, reg.text
+    sess.headers["Authorization"] = f"Bearer {reg.json()['access_token']}"
     orig = sess.get(f"{API}/settings").json()
     before_ids = {x["id"] for x in sess.get(f"{API}/rides?status=all&limit=500").json()}
     yield sess
+    sess.delete(f"{API}/auth/account")
+    return
     # restore original settings (incl. 99 fields), force auto_accept/sync off
     orig.pop("id", None); orig.pop("key", None)
     orig.update({"auto_accept": False, "sync_99_enabled": False})
@@ -229,7 +236,7 @@ def test_bulk_created_at_offset_normalized(s):
     from pathlib import Path
     load_dotenv(Path(__file__).parent.parent / ".env")
     db = MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
-    docs = list(db.rides.find({"source": "rapidocar", "created_at": {"$regex": "^2025-01-15T"}}))
+    docs = list(db.rides.find({"user_id": s.get(f"{API}/auth/me").json()["id"], "source": "rapidocar", "created_at": {"$regex": "^2025-01-15T"}}))
     for d in docs:
         CREATED.add(str(d["_id"]))
     stamps = sorted(d["created_at"] for d in docs)
