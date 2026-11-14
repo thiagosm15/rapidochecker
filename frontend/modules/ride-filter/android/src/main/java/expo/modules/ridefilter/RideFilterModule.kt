@@ -42,6 +42,14 @@ class RideFilterModule : Module() {
       RideFilterStore.resetBusy99(context)
     }
 
+    Function("setLearning") { on: Boolean ->
+      RideFilterStore.setLearning(context, on)
+    }
+
+    Function("getCapturedScreens") {
+      RideFilterStore.capturedScreens(context)
+    }
+
     Function("clearPendingEvents") {
       RideFilterStore.prefs(context).edit().putString(RideFilterStore.KEY_EVENTS, "[]").apply()
     }

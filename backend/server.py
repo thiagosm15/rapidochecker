@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, BeforeValidator, ConfigDict, field_validator
 from typing import List, Optional, Annotated, Literal
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 ROOT_DIR = Path(__file__).parent
@@ -88,6 +88,13 @@ class Settings(BaseDocument):
     ride_end_texts: List[str] = ["Corrida finalizada", "Avaliar passageiro", "Avalie o passageiro"]
     offline_texts: List[str] = ["Ficar offline", "Desconectar", "Ficar indisponível"]
     online_texts: List[str] = ["Ficar online", "Conectar", "Ficar disponível"]
+    # Working hours (days: 0=Sunday..6=Saturday; times HH:MM, may cross midnight)
+    schedule_enabled: bool = False
+    schedule_start: str = "06:00"
+    schedule_end: str = "22:00"
+    schedule_days: List[int] = [0, 1, 2, 3, 4, 5, 6]
+    # Sound + vibration when a ride is auto-accepted
+    alert_enabled: bool = True
 
 
 TEXT_LIST_FIELDS = ["accept_texts", "ride_active_texts", "ride_end_texts", "offline_texts", "online_texts"]
@@ -106,6 +113,11 @@ class SettingsUpdate(BaseModel):
     ride_end_texts: Optional[List[str]] = None
     offline_texts: Optional[List[str]] = None
     online_texts: Optional[List[str]] = None
+    schedule_enabled: Optional[bool] = None
+    schedule_start: Optional[str] = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    schedule_end: Optional[str] = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    schedule_days: Optional[List[Annotated[int, Field(ge=0, le=6)]]] = None
+    alert_enabled: Optional[bool] = None
 
 
 class Ride(BaseDocument):
@@ -194,13 +206,27 @@ PLACES = ["Av. Paulista", "Pinheiros", "Vila Madalena", "Moema", "Centro", "Tatu
           "Itaim Bibi", "Brooklin", "Lapa", "Mooca", "Butantã", "Aeroporto Congonhas", "Liberdade"]
 
 
+def in_schedule(s: Settings, local: datetime) -> bool:
+    if not s.schedule_enabled:
+        return True
+    day = (local.weekday() + 1) % 7  # Python Monday=0 -> Sunday=0
+    if day not in s.schedule_days:
+        return False
+    to_min = lambda t: int(t[:2]) * 60 + int(t[3:5])
+    m = local.hour * 60 + local.minute
+    start, end = to_min(s.schedule_start), to_min(s.schedule_end)
+    return start <= m < end if start <= end else (m >= start or m < end)
+
+
 @api_router.post("/simulate")
-async def simulate():
+async def simulate(tz: int = Query(0, ge=-840, le=840)):
     s = await get_settings()
     trip_km = round(random.uniform(1.5, 25), 1)
     price = round(trip_km * random.uniform(1.1, 3.4) + random.uniform(2, 5), 2)
     pickup_km = round(random.uniform(0.3, 7), 1)
     ppk, reasons = evaluate(price, trip_km, pickup_km, s)
+    if not in_schedule(s, datetime.now(timezone.utc) + timedelta(minutes=tz)):
+        reasons.append("Fora do horário de trabalho")
     a, b = random.sample(PLACES, 2)
     ride = Ride(price=price, trip_km=trip_km, pickup_km=pickup_km, price_per_km=ppk,
                 accepted=not reasons, reasons=reasons, source="simulador", pickup=a, dropoff=b)
@@ -253,6 +279,38 @@ async def stats(since: Optional[str] = None):
         "today_total": total,
         "today_accepted": len(accepted),
         "accept_rate": round(len(accepted) * 100 / total, 1) if total else 0,
+    }
+
+
+WEEKDAYS_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+
+
+@api_router.get("/stats/weekly")
+async def stats_weekly(tz: int = Query(0, ge=-840, le=840)):
+    """Last 7 local days (tz = minutes offset from UTC, e.g. -180 for Brasília)."""
+    now_local = datetime.now(timezone.utc) + timedelta(minutes=tz)
+    first_day = (now_local - timedelta(days=6)).date()
+    start_utc = datetime(first_day.year, first_day.month, first_day.day, tzinfo=timezone.utc) - timedelta(minutes=tz)
+    docs = await db.rides.find({"created_at": {"$gte": start_utc.isoformat()}}, {"price": 1, "accepted": 1, "created_at": 1}).to_list(20000)
+    days = []
+    for i in range(7):
+        d = first_day + timedelta(days=i)
+        days.append({"date": d.isoformat(), "label": WEEKDAYS_PT[(d.weekday() + 1) % 7], "earnings": 0.0, "accepted": 0, "total": 0})
+    for doc in docs:
+        local = datetime.fromisoformat(doc["created_at"]) + timedelta(minutes=tz)
+        idx = (local.date() - first_day).days
+        if 0 <= idx < 7:
+            days[idx]["total"] += 1
+            if doc.get("accepted"):
+                days[idx]["accepted"] += 1
+                days[idx]["earnings"] = round(days[idx]["earnings"] + doc["price"], 2)
+    for d in days:
+        d["accept_rate"] = round(d["accepted"] * 100 / d["total"], 1) if d["total"] else 0
+    return {
+        "days": days,
+        "week_earnings": round(sum(d["earnings"] for d in days), 2),
+        "week_accepted": sum(d["accepted"] for d in days),
+        "week_total": sum(d["total"] for d in days),
     }
 
 

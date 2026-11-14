@@ -24,6 +24,38 @@ object RideFilterStore {
 
   fun isBusy99(context: Context): Boolean = prefs(context).getBoolean(KEY_BUSY_99, false)
 
+  // ---- Learning mode: capture visible texts of RapidoCar / 99 screens ----
+  private const val KEY_LEARNING = "learning"
+  private const val KEY_SCREEN_PREFIX = "screen_"
+
+  fun isLearning(context: Context): Boolean = prefs(context).getBoolean(KEY_LEARNING, false)
+
+  fun setLearning(context: Context, on: Boolean) {
+    prefs(context).edit().putBoolean(KEY_LEARNING, on).apply()
+  }
+
+  fun saveScreen(context: Context, key: String, pkg: String, texts: List<String>) {
+    val obj = JSONObject().apply {
+      put("package", pkg)
+      put("at", System.currentTimeMillis())
+      put("texts", JSONArray(texts))
+    }
+    prefs(context).edit().putString(KEY_SCREEN_PREFIX + key, obj.toString()).apply()
+  }
+
+  /** JSON: {learning, rapido: {...}|null, ninety_nine: {...}|null} */
+  fun capturedScreens(context: Context): String {
+    val p = prefs(context)
+    fun read(k: String): Any = p.getString(KEY_SCREEN_PREFIX + k, null)?.let {
+      try { JSONObject(it) } catch (e: Exception) { JSONObject.NULL }
+    } ?: JSONObject.NULL
+    return JSONObject().apply {
+      put("learning", p.getBoolean(KEY_LEARNING, false))
+      put("rapido", read("rapido"))
+      put("ninety_nine", read("99"))
+    }.toString()
+  }
+
   fun setBusy99(context: Context, busy: Boolean) {
     prefs(context).edit()
       .putBoolean(KEY_BUSY_99, busy)

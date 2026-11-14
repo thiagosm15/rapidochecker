@@ -23,6 +23,8 @@ import {
   takePendingEvents,
 } from "@/src/native/rideFilter";
 import { usesNativeTabs } from "@/src/navigation";
+import { WeeklyChart } from "@/src/components/WeeklyChart";
+import { inSchedule, nextStartLabel, scheduleSummary } from "@/src/schedule";
 import { makeStyles, useTheme } from "@/src/theme";
 
 export default function Painel() {
@@ -73,6 +75,13 @@ export default function Painel() {
   useEffect(() => {
     if (settings.data) pushConfig(settings.data);
   }, [settings.data]);
+
+  // Re-render every minute so the schedule status ("No horário"/"Fora do horário") stays current.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -140,12 +149,24 @@ export default function Painel() {
                 {on ? "LIGADO" : "DESLIGADO"}
               </Text>
               <Text style={[styles.toggleHint, { color: on ? colors.onBrandPrimary : colors.muted }]}>
-                {on ? "Aceitando corridas dentro dos filtros" : "Toque para começar a aceitar"}
+                {on
+                  ? inSchedule(s)
+                    ? "Aceitando corridas dentro dos filtros"
+                    : `Fora do horário · volta ${nextStartLabel(s)}`
+                  : "Toque para começar a aceitar"}
               </Text>
             </View>
           </Pressable>
         </Animated.View>
 
+        {s.schedule_enabled ? (
+          <Pressable testID="schedule-pill" onPress={() => router.push("/filtros")} style={styles.schedulePill}>
+            <Ionicons name="time-outline" size={16} color={inSchedule(s) ? colors.success : colors.warning} />
+            <Text style={styles.scheduleText} numberOfLines={1}>
+              {inSchedule(s) ? "No horário" : "Fora do horário"} · {scheduleSummary(s)}
+            </Text>
+          </Pressable>
+        ) : null}
         <Pressable testID="filters-summary-button" onPress={() => router.push("/filtros")} style={styles.summary}>
           <SummaryItem label="Mín R$/km" value={brl(s.min_price_per_km)} testID="summary-min-ppk" />
           <View style={styles.vDivider} />
@@ -213,6 +234,7 @@ export default function Painel() {
             </Text>
           </View>
         </View>
+        <WeeklyChart />
       </ScrollView>
     </View>
   );
@@ -256,6 +278,8 @@ const useStyles = makeStyles((c) => ({
   summaryLabel: { fontFamily: fonts.body, fontSize: 11, color: c.onSurfaceSecondary },
   summaryValue: { fontFamily: fonts.display, fontSize: 20, color: c.onSurface },
   vDivider: { width: 1, alignSelf: "stretch", backgroundColor: c.border },
+  schedulePill: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 12, borderRadius: 8, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border },
+  scheduleText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 13, color: c.onSurfaceTertiary },
   syncCard: { backgroundColor: c.surfaceSecondary, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: c.border, gap: 8 },
   syncHead: { flexDirection: "row", alignItems: "center", gap: 12 },
   syncTitle: { fontFamily: fonts.bodySemi, fontSize: 14, color: c.onSurface },

@@ -24,3 +24,10 @@ Follow-up: "Adicione ao bot para ele ficar off-line na rapidocar sempre que acei
 - P0: Validate on a real Android APK with the real RapidoCar/99 texts and adjust defaults
 - P1: Per-device settings (multi-user), working-hours schedule, minimum price per minute
 - P2: Weekly earnings chart, sound alert on accept
+
+## Update (2026-06, iteration 3)
+- Modo aprendizado (/aprender): service captures visible texts of RapidoCar/99; user taps a text to assign it to Aceitar / offline / online / 99 lists (warning on suspicious picks)
+- Working hours: schedule_enabled/start/end/days (crosses midnight), enforced in Android service and simulator
+- Weekly chart on Painel (/api/stats/weekly?tz=)
+- Sound + vibration alert on auto-accept (alert_enabled), native only
+- User asked for an APK: build via Publish → Android build

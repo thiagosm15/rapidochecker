@@ -1,14 +1,21 @@
 package expo.modules.ridefilter
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -37,6 +44,8 @@ class RideAccessibilityService : AccessibilityService() {
     if (pkg == packageName) return
     val cfg = RideFilterStore.config(this) ?: return
 
+    if (RideFilterStore.isLearning(this)) captureScreen(pkg, cfg)
+
     // ---- 99 app: detect ride start / end ----
     if (cfg.optBoolean("sync_99_enabled", false)) {
       val p99 = cfg.optString("ninety_nine_package", "app99").trim().lowercase()
@@ -58,6 +67,7 @@ class RideAccessibilityService : AccessibilityService() {
 
     if (!cfg.optBoolean("auto_accept", false)) return
     if (RideFilterStore.isBusy99(this)) return // never accept while driving a 99 ride
+    if (!inSchedule(cfg)) return // outside working hours
 
     acceptIfMatches(root, cfg, pkg)
   }
@@ -169,7 +179,10 @@ class RideAccessibilityService : AccessibilityService() {
     if (pickupKm > cfg.optDouble("max_pickup_km", Double.MAX_VALUE)) reasons.put("Busca muito longe")
 
     val accepted = reasons.length() == 0
-    if (accepted) clickNode(button)
+    if (accepted) {
+      clickNode(button)
+      if (cfg.optBoolean("alert_enabled", true)) playAlert()
+    }
 
     RideFilterStore.appendEvent(this, JSONObject().apply {
       put("price", price)
@@ -184,6 +197,69 @@ class RideAccessibilityService : AccessibilityService() {
   }
 
   // ---------------- helpers ----------------
+
+  private val lastCapture = HashMap<String, Long>()
+
+  private fun captureScreen(pkg: String, cfg: JSONObject) {
+    val lower = pkg.lowercase()
+    val target = cfg.optString("target_package", "rapido").trim().lowercase()
+    val p99 = cfg.optString("ninety_nine_package", "app99").trim().lowercase()
+    val key = when {
+      target.isNotEmpty() && lower.contains(target) -> "rapido"
+      p99.isNotEmpty() && lower.contains(p99) -> "99"
+      else -> return
+    }
+    val now = System.currentTimeMillis()
+    if (now - (lastCapture[key] ?: 0L) < 1500) return
+    val root = rootInActiveWindow ?: return
+    if (root.packageName?.toString() != pkg) return
+    lastCapture[key] = now
+    val texts = mutableListOf<String>()
+    collectTexts(root, texts, 0)
+    val clean = texts.map { it.trim() }.filter { it.isNotEmpty() && it.length <= 60 }.distinct().take(120)
+    if (clean.isNotEmpty()) RideFilterStore.saveScreen(this, key, pkg, clean)
+  }
+
+  /** Days: 0=Sunday..6=Saturday. Times "HH:MM". Window may cross midnight. */
+  private fun inSchedule(cfg: JSONObject): Boolean {
+    if (!cfg.optBoolean("schedule_enabled", false)) return true
+    val cal = Calendar.getInstance()
+    val day = cal.get(Calendar.DAY_OF_WEEK) - 1
+    val minutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+    val days = cfg.optJSONArray("schedule_days")
+    if (days != null) {
+      val allowed = (0 until days.length()).map { days.optInt(it) }
+      if (!allowed.contains(day)) return false
+    }
+    val start = toMinutes(cfg.optString("schedule_start", "00:00"))
+    val end = toMinutes(cfg.optString("schedule_end", "23:59"))
+    return if (start <= end) minutes in start until end else (minutes >= start || minutes < end)
+  }
+
+  private fun toMinutes(hhmm: String): Int {
+    val parts = hhmm.split(":")
+    val h = parts.getOrNull(0)?.toIntOrNull() ?: 0
+    val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    return h * 60 + m
+  }
+
+  private fun playAlert() {
+    try {
+      val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+      tone.startTone(ToneGenerator.TONE_PROP_ACK, 500)
+      handler.postDelayed({ tone.release() }, 800)
+    } catch (e: Exception) { /* ignored */ }
+    try {
+      @Suppress("DEPRECATION")
+      val vib = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        vib?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 250, 120, 250), -1))
+      } else {
+        @Suppress("DEPRECATION")
+        vib?.vibrate(longArrayOf(0, 250, 120, 250), -1)
+      }
+    } catch (e: Exception) { /* ignored */ }
+  }
 
   private fun isoNow(): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
     timeZone = TimeZone.getTimeZone("UTC")

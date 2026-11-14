@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.VIBRATE" />
   <!-- Needed to find and open the RapidoCar and 99 apps (Android 11+ package visibility) -->
   <queries>
     <intent>

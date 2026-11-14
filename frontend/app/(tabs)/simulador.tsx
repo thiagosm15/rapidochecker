@@ -27,7 +27,7 @@ export default function Simulador() {
   const generate = () => {
     sim.mutate(undefined, {
       onSuccess: (r) => {
-        if (Platform.OS !== "web")
+        if (Platform.OS !== "web" && settings.data?.alert_enabled)
           Haptics.notificationAsync(r.accepted ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error);
       },
     });

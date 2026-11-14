@@ -15,7 +15,21 @@ export type Settings = {
   ride_end_texts: string[];
   offline_texts: string[];
   online_texts: string[];
+  schedule_enabled: boolean;
+  schedule_start: string;
+  schedule_end: string;
+  schedule_days: number[];
+  alert_enabled: boolean;
 };
+
+export type WeeklyDay = { date: string; label: string; earnings: number; accepted: number; total: number; accept_rate: number };
+export type Weekly = { days: WeeklyDay[]; week_earnings: number; week_accepted: number; week_total: number };
+
+const tzOffset = () => -new Date().getTimezoneOffset();
+
+export function useWeekly() {
+  return useQuery({ queryKey: ["stats", "weekly"], queryFn: () => req<Weekly>(`/stats/weekly?tz=${tzOffset()}`) });
+}
 
 export type Ride = {
   id: string;
@@ -83,7 +97,7 @@ export function useRides(status: RideStatus) {
 export function useSimulate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => req<Ride>("/simulate", { method: "POST" }),
+    mutationFn: () => req<Ride>(`/simulate?tz=${tzOffset()}`, { method: "POST" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["stats"] });
       qc.invalidateQueries({ queryKey: ["rides"] });

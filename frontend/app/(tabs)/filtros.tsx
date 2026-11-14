@@ -1,6 +1,6 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
-import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
@@ -12,6 +12,7 @@ import { ErrorState, LoadingState } from "@/src/components/StateViews";
 import { fonts } from "@/src/fonts";
 import { pushConfig } from "@/src/native/rideFilter";
 import { usesNativeTabs } from "@/src/navigation";
+import { DAY_NAMES, isValidTime } from "@/src/schedule";
 import { makeStyles, useTheme } from "@/src/theme";
 
 type Form = {
@@ -26,8 +27,13 @@ type Form = {
   ride_end_texts: string;
   offline_texts: string;
   online_texts: string;
+  schedule_enabled: boolean;
+  schedule_start: string;
+  schedule_end: string;
+  schedule_days: number[];
+  alert_enabled: boolean;
 };
-type TextKey = Exclude<keyof Form, "sync_99_enabled">;
+type TextKey = Exclude<keyof Form, "sync_99_enabled" | "schedule_enabled" | "schedule_days" | "alert_enabled">;
 
 const LIST_KEYS = ["accept_texts", "ride_active_texts", "ride_end_texts", "offline_texts", "online_texts"] as const;
 const splitList = (s: string) => s.split(",").map((t) => t.trim()).filter(Boolean);
@@ -51,6 +57,11 @@ function fromSettings(s: Settings): Form {
     ride_end_texts: s.ride_end_texts.join(", "),
     offline_texts: s.offline_texts.join(", "),
     online_texts: s.online_texts.join(", "),
+    schedule_enabled: s.schedule_enabled,
+    schedule_start: s.schedule_start,
+    schedule_end: s.schedule_end,
+    schedule_days: s.schedule_days,
+    alert_enabled: s.alert_enabled,
   };
 }
 
@@ -58,15 +69,26 @@ export default function Filtros() {
   const insets = useSafeAreaInsets();
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const styles = useStyles();
+  const { colors } = useTheme();
+  const router = useRouter();
   const settings = useSettings();
   const update = useUpdateSettings();
   const [form, setForm] = useState<Form | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // Re-sync with server settings whenever the tab gains focus (Painel may have changed them).
+  // Re-sync with server settings when the tab gains focus (Painel/Aprender may have changed them),
+  // but keep the user's unsaved edits.
+  const synced = useRef<string>("");
+  const formRef = useRef<Form | null>(null);
+  formRef.current = form;
   useFocusEffect(
     useCallback(() => {
-      if (settings.data) setForm(fromSettings(settings.data));
+      if (!settings.data) return;
+      const cur = formRef.current;
+      if (cur && JSON.stringify(cur) !== synced.current) return; // dirty: keep edits
+      const next = fromSettings(settings.data);
+      synced.current = JSON.stringify(next);
+      setForm(next);
     }, [settings.data]),
   );
 
@@ -105,6 +127,14 @@ export default function Filtros() {
       setToast({ ok: false, msg: "Preencha todos os textos da integração 99." });
       return;
     }
+    if (form.schedule_enabled && (!isValidTime(form.schedule_start) || !isValidTime(form.schedule_end))) {
+      setToast({ ok: false, msg: "Horário inválido. Use o formato HH:MM, ex.: 06:00" });
+      return;
+    }
+    if (form.schedule_enabled && !form.schedule_days.length) {
+      setToast({ ok: false, msg: "Escolha ao menos um dia de trabalho." });
+      return;
+    }
     update.mutate(
       {
         min_price_per_km: ppk,
@@ -114,11 +144,18 @@ export default function Filtros() {
         target_package: form.target_package.trim(),
         sync_99_enabled: form.sync_99_enabled,
         ninety_nine_package: form.ninety_nine_package.trim(),
+        schedule_enabled: form.schedule_enabled,
+        schedule_start: isValidTime(form.schedule_start) ? form.schedule_start : undefined,
+        schedule_end: isValidTime(form.schedule_end) ? form.schedule_end : undefined,
+        schedule_days: form.schedule_days,
+        alert_enabled: form.alert_enabled,
       },
       {
         onSuccess: (s) => {
           pushConfig(s);
-          setForm(fromSettings(s));
+          const next = fromSettings(s);
+          synced.current = JSON.stringify(next);
+          setForm(next);
           setToast({ ok: true, msg: "Filtros salvos" });
         },
         onError: () => setToast({ ok: false, msg: "Erro ao salvar. Tente novamente." }),
@@ -158,7 +195,88 @@ export default function Filtros() {
           onStep={(d) => step("max_pickup_km", d * 0.5, 1)}
         />
 
+        <Text style={[styles.section, { marginTop: 8 }]}>HORÁRIO DE TRABALHO</Text>
+        <SwitchRow
+          id="schedule-switch"
+          label="Aceitar só no meu horário"
+          hint="Fora do horário o bot não aceita nenhuma corrida."
+          value={form.schedule_enabled}
+          onToggle={() => setForm({ ...form, schedule_enabled: !form.schedule_enabled })}
+        />
+        {form.schedule_enabled ? (
+          <View style={styles.field}>
+            <View style={styles.timeRow}>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.label}>Início</Text>
+                <TextInput
+                  testID="schedule-start-input"
+                  value={form.schedule_start}
+                  onChangeText={(v) => setForm({ ...form, schedule_start: maskTime(v) })}
+                  keyboardType="number-pad"
+                  maxLength={5}
+                  placeholder="06:00"
+                  placeholderTextColor={colors.muted}
+                  style={styles.timeInput}
+                />
+              </View>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.label}>Fim</Text>
+                <TextInput
+                  testID="schedule-end-input"
+                  value={form.schedule_end}
+                  onChangeText={(v) => setForm({ ...form, schedule_end: maskTime(v) })}
+                  keyboardType="number-pad"
+                  maxLength={5}
+                  placeholder="22:00"
+                  placeholderTextColor={colors.muted}
+                  style={styles.timeInput}
+                />
+              </View>
+            </View>
+            <Text style={styles.label}>Dias</Text>
+            <View style={styles.daysRow}>
+              {DAY_NAMES.map((d, i) => {
+                const active = form.schedule_days.includes(i);
+                return (
+                  <Pressable
+                    key={i}
+                    testID={`schedule-day-${i}`}
+                    accessibilityLabel={DAY_NAMES[i]}
+                    onPress={() =>
+                      setForm({
+                        ...form,
+                        schedule_days: active ? form.schedule_days.filter((x) => x !== i) : [...form.schedule_days, i].sort(),
+                      })
+                    }
+                    style={[styles.dayChip, active && styles.dayChipActive]}
+                  >
+                    <Text style={[styles.dayText, active && styles.dayTextActive]}>{d}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.hint}>Se o fim for antes do início (ex.: 18:00 às 02:00), o horário passa da meia-noite.</Text>
+          </View>
+        ) : null}
+
+        <Text style={[styles.section, { marginTop: 8 }]}>ALERTA</Text>
+        <SwitchRow
+          id="alert-switch"
+          label="Som e vibração ao aceitar"
+          hint="Toca um bipe e vibra o celular sempre que o bot aceita uma corrida."
+          value={form.alert_enabled}
+          onToggle={() => setForm({ ...form, alert_enabled: !form.alert_enabled })}
+        />
+
         <Text style={[styles.section, { marginTop: 8 }]}>LEITURA DA TELA (ANDROID)</Text>
+        <Pressable testID="open-learning-button" onPress={() => router.push("/aprender")} style={[styles.field, styles.switchRow]}>
+          <Ionicons name="scan-outline" size={24} color={colors.brandPrimary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Modo aprendizado</Text>
+            <Text style={styles.hint}>Leia a tela real do RapidoCar e da 99 e toque nos textos para configurar os botões.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+        </Pressable>
         <TextField
           id="accept-texts"
           label="Textos do botão Aceitar"
@@ -213,6 +331,32 @@ export default function Filtros() {
         </Pressable>
       </View>
     </View>
+  );
+}
+
+function maskTime(v: string) {
+  const digits = v.replace(/\D/g, "").slice(0, 4);
+  return digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits;
+}
+
+function SwitchRow(props: { id: string; label: string; hint: string; value: boolean; onToggle: () => void }) {
+  const styles = useStyles();
+  return (
+    <Pressable
+      testID={props.id}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: props.value }}
+      onPress={props.onToggle}
+      style={[styles.field, styles.switchRow, props.value && styles.fieldHighlight]}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={styles.label}>{props.label}</Text>
+        <Text style={styles.hint}>{props.hint}</Text>
+      </View>
+      <View style={[styles.switchTrack, props.value && styles.switchTrackOn]}>
+        <View style={[styles.switchThumb, props.value && styles.switchThumbOn]} />
+      </View>
+    </Pressable>
   );
 }
 
@@ -291,6 +435,13 @@ const useStyles = makeStyles((c) => ({
   textInput: { height: 48, borderRadius: 8, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12, color: c.onSurface, fontFamily: fonts.body, fontSize: 15 },
   hint: { fontFamily: fonts.body, fontSize: 12, color: c.muted },
   switchRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  timeRow: { flexDirection: "row", gap: 12 },
+  timeInput: { height: 52, borderRadius: 8, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, color: c.onSurface, fontFamily: fonts.display, fontSize: 28, textAlign: "center", padding: 0 },
+  daysRow: { flexDirection: "row", justifyContent: "space-between", gap: 4 },
+  dayChip: { flex: 1, minWidth: 44, height: 44, borderRadius: 8, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, alignItems: "center", justifyContent: "center" },
+  dayChipActive: { backgroundColor: c.brandPrimary, borderColor: c.brandPrimary },
+  dayText: { fontFamily: fonts.bodySemi, fontSize: 12, color: c.onSurfaceSecondary },
+  dayTextActive: { color: c.onBrandPrimary },
   switchTrack: { width: 52, height: 30, borderRadius: 15, backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.borderStrong, padding: 3 },
   switchTrackOn: { backgroundColor: c.brandPrimary, borderColor: c.brandPrimary },
   switchThumb: { width: 22, height: 22, borderRadius: 11, backgroundColor: c.onSurfaceSecondary },

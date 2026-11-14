@@ -11,7 +11,20 @@ type RideFilterNative = {
   clearPendingEvents(): void;
   getSyncState(): string;
   resetBusy99(): void;
+  setLearning(on: boolean): void;
+  getCapturedScreens(): string;
 };
+
+export type CapturedScreen = { package: string; at: number; texts: string[] };
+export type CapturedScreens = { learning: boolean; rapido: CapturedScreen | null; ninety_nine: CapturedScreen | null };
+
+export function getCapturedScreens(): CapturedScreens | null {
+  return mod ? (JSON.parse(mod.getCapturedScreens()) as CapturedScreens) : null;
+}
+
+export function setLearning(on: boolean) {
+  mod?.setLearning(on);
+}
 
 export type SyncState = { busy_99: boolean; since: number; log: { type: string; at: number }[] };
 
