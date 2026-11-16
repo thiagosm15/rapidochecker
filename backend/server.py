@@ -28,7 +28,7 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
-ADMIN_PASSWORD = os.environ['ADMIN_PASSWORD']
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')  # empty = admin area disabled, API still boots
 JWT_ALGORITHM = "HS256"
 TOKEN_DAYS = 30  # drivers stay signed in; admin can block at any time (checked on every request)
 ADMIN_TOKEN_HOURS = 12
@@ -498,6 +498,8 @@ async def admin_login(body: AdminLoginIn, request: Request):
     # Global limit (not per IP, so spoofed/rotated IPs can't brute-force the password).
     key = "admin:global"
     await check_limit(key, 10, "Muitas tentativas. Aguarde 15 minutos.")
+    if not ADMIN_PASSWORD:
+        raise HTTPException(status_code=503, detail="Área do administrador não configurada")
     if not hmac.compare_digest(body.password.encode(), ADMIN_PASSWORD.encode()):
         await record_fail(key)
         raise HTTPException(status_code=401, detail="Senha de administrador incorreta")
