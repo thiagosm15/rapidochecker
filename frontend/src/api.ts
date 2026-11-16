@@ -108,11 +108,12 @@ export const apiClearHistory = () => req<{ deleted: number }>("/rides", { method
 
 // ---------- Admin ----------
 export type AdminUser = User & { created_at: string; status_changed_at: string | null; last_login_at: string | null; expired: boolean };
-export type AdminUsers = { users: AdminUser[]; counts: Record<UserStatus, number> };
+export type AdminFilter = "all" | UserStatus | "expired";
+export type AdminUsers = { users: AdminUser[]; counts: Record<Exclude<AdminFilter, "all">, number> };
 
 export const adminLogin = (password: string) =>
   adminReq<{ access_token: string }>("/admin/login", "", { method: "POST", body: JSON.stringify({ password }) });
-export const adminListUsers = (token: string, status: "all" | UserStatus) => adminReq<AdminUsers>(`/admin/users?status=${status}`, token);
+export const adminListUsers = (token: string, status: AdminFilter) => adminReq<AdminUsers>(`/admin/users?status=${status}`, token);
 export const adminUpdateUser = (token: string, id: string, body: { status?: UserStatus; name?: string; access_days?: number }) =>
   adminReq<AdminUser>(`/admin/users/${id}`, token, { method: "PATCH", body: JSON.stringify(body) });
 export const adminDeleteUser = (token: string, id: string) => adminReq<{ deleted: boolean }>(`/admin/users/${id}`, token, { method: "DELETE" });
@@ -141,6 +142,10 @@ export function isValidCpf(v: string) {
 }
 
 // ---------- Hooks ----------
+export function useMe() {
+  return useQuery({ queryKey: ["me"], queryFn: () => req<User>("/auth/me") });
+}
+
 export function useSettings() {
   return useQuery({ queryKey: ["settings"], queryFn: () => req<Settings>("/settings") });
 }

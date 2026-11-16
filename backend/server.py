@@ -483,12 +483,19 @@ async def admin_login(body: AdminLoginIn, request: Request):
 
 
 @api_router.get("/admin/users")
-async def admin_users(_: CurrentAdmin, status: Literal["all", "pending", "approved", "blocked"] = "all"):
-    q: dict = {"cpf": {"$type": "string"}}
-    if status != "all":
-        q["status"] = status
-    docs = await db.users.find(q).sort("created_at", -1).to_list(1000)
-    counts = {s: await db.users.count_documents({"cpf": {"$type": "string"}, "status": s}) for s in ("pending", "approved", "blocked")}
+async def admin_users(_: CurrentAdmin, status: Literal["all", "pending", "approved", "expired", "blocked"] = "all"):
+    now = now_iso()
+    base: dict = {"cpf": {"$type": "string"}}
+    queries = {
+        "pending": {**base, "status": "pending"},
+        "blocked": {**base, "status": "blocked"},
+        "approved": {**base, "status": "approved", "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}]},
+        "expired": {**base, "status": "approved", "expires_at": {"$ne": None, "$lte": now}},
+    }
+    q = queries.get(status, base)
+    sort = [("expires_at", -1)] if status == "expired" else [("created_at", -1)]
+    docs = await db.users.find(q).sort(sort).to_list(1000)
+    counts = {s: await db.users.count_documents(cq) for s, cq in queries.items()}
     return {"users": [User.from_mongo(d).admin_view() for d in docs], "counts": counts}
 
 

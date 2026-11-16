@@ -10,10 +10,11 @@ import { AdminUser, AdminUsers, adminDeleteUser, adminListUsers, adminLogin, adm
 import { fonts } from "@/src/fonts";
 import { makeStyles, useTheme } from "@/src/theme";
 
-type Filter = "pending" | "approved" | "blocked" | "all";
+type Filter = "pending" | "approved" | "expired" | "blocked" | "all";
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "pending", label: "Pendentes" },
   { key: "approved", label: "Liberados" },
+  { key: "expired", label: "Vencidos" },
   { key: "blocked", label: "Bloqueados" },
   { key: "all", label: "Todos" },
 ];

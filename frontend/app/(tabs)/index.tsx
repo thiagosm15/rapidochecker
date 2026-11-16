@@ -7,7 +7,7 @@ import { AppState, Platform, Pressable, RefreshControl, ScrollView, Text, View }
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { APP_KEYS, APP_LABELS, AppFilters, AppKey, brl, DaySummary, num, uploadRides, useSettings, useTodaySummary, useUpdateSettings } from "@/src/api";
+import { APP_KEYS, APP_LABELS, AppFilters, AppKey, brl, DaySummary, num, uploadRides, useMe, useSettings, useTodaySummary, useUpdateSettings } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { ErrorState, LoadingState } from "@/src/components/StateViews";
@@ -36,6 +36,7 @@ export default function Painel() {
   const { user } = useAuth();
   const settings = useSettings();
   const today = useTodaySummary();
+  const me = useMe();
   const update = useUpdateSettings();
   const [serviceOn, setServiceOn] = useState(isServiceEnabled());
   const [refreshing, setRefreshing] = useState(false);
@@ -59,6 +60,7 @@ export default function Painel() {
       }
     }
     await qc.invalidateQueries({ queryKey: ["rides"] });
+    qc.invalidateQueries({ queryKey: ["me"] });
   }, [qc]);
 
   useFocusEffect(
@@ -145,6 +147,8 @@ export default function Painel() {
           ) : null}
         </View>
 
+        {me.data?.expires_at ? <ExpiryWarning expiresAt={me.data.expires_at} /> : null}
+
         {today.data ? <TodayCard data={today.data} /> : null}
 
         {APP_KEYS.map((key, i) => (
@@ -225,6 +229,28 @@ function AppCard(props: {
         <SummaryItem label="Busca até" value={`${num(f.max_pickup_km)} km`} />
         <Ionicons name="chevron-forward" size={18} color={colors.muted} />
       </Pressable>
+    </View>
+  );
+}
+
+const WARN_DAYS = 3;
+
+function ExpiryWarning({ expiresAt }: { expiresAt: string }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const end = new Date(expiresAt);
+  const msLeft = end.getTime() - Date.now();
+  if (msLeft > WARN_DAYS * 86400000 || msLeft <= 0) return null;
+  const days = Math.ceil(msLeft / 86400000);
+  const when = days <= 1 ? "em menos de 1 dia" : `em ${days} dias`;
+  const date = `${end.toLocaleDateString("pt-BR")} às ${end.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+  return (
+    <View style={[styles.banner, { borderColor: colors.warning, backgroundColor: colors.surfaceSecondary }]} testID="expiry-warning">
+      <Ionicons name="hourglass-outline" size={22} color={colors.warning} />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.bannerTitle, { color: colors.warning }]} testID="expiry-warning-title">Seu acesso vence {when}</Text>
+        <Text style={styles.bannerText}>Válido até {date}. Fale com o responsável para renovar.</Text>
+      </View>
     </View>
   );
 }

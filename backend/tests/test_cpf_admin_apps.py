@@ -108,7 +108,7 @@ class TestCpfAuth:
         # pending list contains it
         pend = s.get(f"{API}/admin/users?status=pending", headers=admin_h).json()
         assert any(x["id"] == u["id"] for x in pend["users"])
-        assert set(pend["counts"]) == {"pending", "approved", "blocked"}
+        assert set(pend["counts"]) == {"pending", "approved", "expired", "blocked"}
         assert all(x["status"] == "pending" for x in pend["users"])
         # second login still pending, no token
         r = s.post(f"{API}/auth/cpf", json={"cpf": cpf})
@@ -150,7 +150,7 @@ class TestAdmin:
         assert s.get(f"{API}/rides", headers=admin_h).status_code == 401
 
     def test_list_filters(self, s, admin_h):
-        for st in ("pending", "approved", "blocked", "all"):
+        for st in ("pending", "approved", "expired", "blocked", "all"):
             r = s.get(f"{API}/admin/users?status={st}", headers=admin_h)
             assert r.status_code == 200 and "users" in r.json() and "counts" in r.json()
         assert s.get(f"{API}/admin/users?status=xx", headers=admin_h).status_code == 422
