@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { apiCpfLogin, isValidCpf, maskCpf, PRIVACY_URL } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { getDeviceId } from "@/src/device";
 import { fonts } from "@/src/fonts";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -46,10 +47,12 @@ export default function Login() {
     }
     setLoading(true);
     try {
-      const res = await apiCpfLogin(cpf);
+      const res = await apiCpfLogin(cpf, await getDeviceId());
       if (res.status === "approved") await signIn(res.access_token, res.user);
       else if (res.status === "pending")
         setNotice({ tone: "warning", title: "Aguardando liberação", text: "Seu CPF foi registrado. Assim que o acesso for liberado, toque em Entrar novamente." });
+      else if (res.status === "other_device")
+        setNotice({ tone: "error", title: "CPF liberado em outro aparelho", text: "Cada CPF só pode ser usado em um celular. Peça ao responsável para liberar este aparelho." });
       else if (res.status === "expired")
         setNotice({ tone: "error", title: "Prazo de acesso vencido", text: "Seu período de acesso terminou. Fale com o responsável para renovar." });
       else setNotice({ tone: "error", title: "Acesso bloqueado", text: "Este CPF não tem acesso ao app. Fale com o responsável." });

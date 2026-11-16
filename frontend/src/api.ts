@@ -97,24 +97,32 @@ export type UserStatus = "pending" | "approved" | "blocked";
 export type User = { id: string; cpf: string; name: string; status: UserStatus; expires_at: string | null };
 export type CpfLoginResponse =
   | { status: "approved"; access_token: string; token_type: string; user: User }
-  | { status: "pending" | "blocked" | "expired" };
+  | { status: "pending" | "blocked" | "expired" | "other_device" };
 
 export const PRIVACY_URL = `${BASE}/privacy`;
 
-export const apiCpfLogin = (cpf: string) =>
-  req<CpfLoginResponse>("/auth/cpf", { method: "POST", body: JSON.stringify({ cpf }) });
+export const apiCpfLogin = (cpf: string, deviceId: string) =>
+  req<CpfLoginResponse>("/auth/cpf", { method: "POST", body: JSON.stringify({ cpf, device_id: deviceId }) });
 export const apiDeleteAccount = () => req<{ deleted: boolean }>("/auth/account", { method: "DELETE" });
 export const apiClearHistory = () => req<{ deleted: number }>("/rides", { method: "DELETE" });
 
 // ---------- Admin ----------
-export type AdminUser = User & { created_at: string; status_changed_at: string | null; last_login_at: string | null; expired: boolean };
+export type AdminUser = User & {
+  created_at: string;
+  status_changed_at: string | null;
+  last_login_at: string | null;
+  expired: boolean;
+  has_device: boolean;
+  device_bound_at: string | null;
+};
 export type AdminFilter = "all" | UserStatus | "expired";
 export type AdminUsers = { users: AdminUser[]; counts: Record<Exclude<AdminFilter, "all">, number> };
 
 export const adminLogin = (password: string) =>
   adminReq<{ access_token: string }>("/admin/login", "", { method: "POST", body: JSON.stringify({ password }) });
 export const adminListUsers = (token: string, status: AdminFilter) => adminReq<AdminUsers>(`/admin/users?status=${status}`, token);
-export const adminUpdateUser = (token: string, id: string, body: { status?: UserStatus; name?: string; access_days?: number }) =>
+export type AdminUserUpdate = { status?: UserStatus; name?: string; access_days?: number; reset_device?: boolean };
+export const adminUpdateUser = (token: string, id: string, body: AdminUserUpdate) =>
   adminReq<AdminUser>(`/admin/users/${id}`, token, { method: "PATCH", body: JSON.stringify(body) });
 export const adminDeleteUser = (token: string, id: string) => adminReq<{ deleted: boolean }>(`/admin/users/${id}`, token, { method: "DELETE" });
 

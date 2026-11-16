@@ -214,6 +214,8 @@ class User(BaseDocument):
     status_changed_at: Optional[str] = None
     last_login_at: Optional[str] = None
     expires_at: Optional[str] = None  # None = no time limit
+    device_id: Optional[str] = None  # the only phone allowed to use this CPF
+    device_bound_at: Optional[str] = None
 
     @property
     def expired(self) -> bool:
@@ -225,11 +227,13 @@ class User(BaseDocument):
 
     def admin_view(self) -> dict:
         return {**self.public(), "created_at": self.created_at, "status_changed_at": self.status_changed_at,
-                "last_login_at": self.last_login_at, "expired": self.expired}
+                "last_login_at": self.last_login_at, "expired": self.expired,
+                "has_device": bool(self.device_id), "device_bound_at": self.device_bound_at}
 
 
 class CpfLoginIn(BaseModel):
     cpf: str = Field(min_length=11, max_length=14)
+    device_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
 
 
 class AdminLoginIn(BaseModel):
@@ -241,6 +245,8 @@ class AdminUserUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=80)
     # Approve/renew for N days from now; 0 = no time limit.
     access_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    # True = unlink the current phone so the driver can sign in on a new one.
+    reset_device: Optional[bool] = None
 
 
 # ---------- Rate limiting (stored in Mongo, auto-expires) ----------
@@ -271,12 +277,12 @@ def client_ip(request: Request) -> str:
 
 
 # ---------- Tokens ----------
-def issue_token(sub: str, role: str, ttl: timedelta) -> str:
+def issue_token(sub: str, role: str, ttl: timedelta, **extra) -> str:
     now = datetime.now(timezone.utc)
-    return jwt.encode({"sub": sub, "role": role, "iat": now, "exp": now + ttl}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode({"sub": sub, "role": role, "iat": now, "exp": now + ttl, **extra}, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def decode_token(credentials: Optional[HTTPAuthorizationCredentials], role: str) -> str:
+def decode_token(credentials: Optional[HTTPAuthorizationCredentials], role: str) -> dict:
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Faça login para continuar")
     try:
@@ -285,11 +291,12 @@ def decode_token(credentials: Optional[HTTPAuthorizationCredentials], role: str)
         raise HTTPException(status_code=401, detail="Sessão expirada. Entre novamente.")
     if payload.get("role") != role or not payload.get("sub"):
         raise HTTPException(status_code=401, detail="Sessão inválida")
-    return payload["sub"]
+    return payload
 
 
 async def current_user(credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(bearer)]) -> User:
-    uid = decode_token(credentials, "driver")
+    payload = decode_token(credentials, "driver")
+    uid = payload["sub"]
     if not ObjectId.is_valid(uid):
         raise HTTPException(status_code=401, detail="Sessão inválida")
     doc = await db.users.find_one({"_id": ObjectId(uid)})
@@ -301,11 +308,13 @@ async def current_user(credentials: Annotated[Optional[HTTPAuthorizationCredenti
         raise HTTPException(status_code=401, detail="Seu acesso não está liberado")
     if user.expired:
         raise HTTPException(status_code=401, detail="Seu prazo de acesso venceu. Fale com o responsável.")
+    if not user.device_id or payload.get("dev") != user.device_id:
+        raise HTTPException(status_code=401, detail="Este CPF está liberado em outro aparelho")
     return user
 
 
 async def current_admin(credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(bearer)]) -> str:
-    return decode_token(credentials, "admin")
+    return decode_token(credentials, "admin")["sub"]
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
@@ -353,11 +362,14 @@ async def login_cpf(body: CpfLoginIn, request: Request):
         await check_limit(ip_key, 20, "Muitas tentativas. Aguarde 15 minutos.")
         await record_fail(ip_key)
         raise HTTPException(status_code=422, detail="CPF inválido")
+    if not body.device_id:
+        raise HTTPException(status_code=426, detail="Atualize o app para a versão mais recente.")
     doc = await db.users.find_one({"cpf": cpf})
     if not doc:
         # Creating new access requests is limited per IP to avoid spam.
         await check_limit(f"new:{client_ip(request)}", 10, "Muitos cadastros. Aguarde 15 minutos.")
-        user = User(cpf=cpf)
+        # The phone that asks for access is the one that gets approved.
+        user = User(cpf=cpf, device_id=body.device_id, device_bound_at=now_iso())
         with suppress(DuplicateKeyError):
             await db.users.insert_one(user.to_mongo())
         await record_fail(f"new:{client_ip(request)}")
@@ -367,8 +379,19 @@ async def login_cpf(body: CpfLoginIn, request: Request):
         return {"status": user.status}
     if user.expired:
         return {"status": "expired"}
+    if not user.device_id:
+        # No phone linked yet (older account or admin unlinked it): bind this one atomically.
+        res = await db.users.update_one({"_id": doc["_id"], "device_id": None},
+                                        {"$set": {"device_id": body.device_id, "device_bound_at": now_iso()}})
+        if not res.modified_count:
+            user = User.from_mongo(await db.users.find_one({"_id": doc["_id"]}))
+        else:
+            user.device_id = body.device_id
+    if user.device_id != body.device_id:
+        return {"status": "other_device"}
     await db.users.update_one({"_id": doc["_id"]}, {"$set": {"last_login_at": now_iso()}})
-    return {"status": "approved", "access_token": issue_token(user.id, "driver", timedelta(days=TOKEN_DAYS)),
+    return {"status": "approved",
+            "access_token": issue_token(user.id, "driver", timedelta(days=TOKEN_DAYS), dev=user.device_id),
             "token_type": "bearer", "user": user.public()}
 
 
@@ -505,6 +528,9 @@ async def admin_update_user(user_id: str, body: AdminUserUpdate, _: CurrentAdmin
         raise HTTPException(status_code=404, detail="Motorista não encontrado")
     changes = body.model_dump(exclude_none=True)
     days = changes.pop("access_days", None)
+    if changes.pop("reset_device", False):
+        changes["device_id"] = None
+        changes["device_bound_at"] = None
     if days is not None:
         changes["status"] = "approved"
         changes["expires_at"] = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat() if days else None

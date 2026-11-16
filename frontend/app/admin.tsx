@@ -6,7 +6,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AdminUser, AdminUsers, adminDeleteUser, adminListUsers, adminLogin, adminUpdateUser, UserStatus } from "@/src/api";
+import { AdminUser, AdminUserUpdate, AdminUsers, adminDeleteUser, adminListUsers, adminLogin, adminUpdateUser, UserStatus } from "@/src/api";
 import { fonts } from "@/src/fonts";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -84,7 +84,7 @@ export default function Admin() {
     }
   };
 
-  const act = async (u: AdminUser, body: { status?: UserStatus; name?: string; access_days?: number }) => {
+  const act = async (u: AdminUser, body: AdminUserUpdate) => {
     if (!token) return;
     setBusyId(u.id);
     try {
@@ -201,6 +201,7 @@ export default function Admin() {
             busy={busyId === u.id}
             confirmingDelete={confirmDelete === u.id}
             onGrant={(days) => act(u, { access_days: days })}
+            onResetDevice={() => act(u, { reset_device: true })}
             onBlock={() => act(u, { status: "blocked" })}
             onRename={(name) => act(u, { name })}
             onAskDelete={() => setConfirmDelete(confirmDelete === u.id ? null : u.id)}
@@ -217,6 +218,7 @@ function UserCard(props: {
   busy: boolean;
   confirmingDelete: boolean;
   onGrant: (days: number) => void;
+  onResetDevice: () => void;
   onBlock: () => void;
   onRename: (name: string) => void;
   onAskDelete: () => void;
@@ -251,6 +253,17 @@ function UserCard(props: {
       {validity ? (
         <Text style={[styles.validity, { color: tone }]} testID={`admin-user-validity-${u.id}`}>{validity}</Text>
       ) : null}
+      <View style={styles.deviceRow}>
+        <Ionicons name="phone-portrait-outline" size={16} color={u.has_device ? colors.onSurfaceSecondary : colors.muted} />
+        <Text style={styles.deviceText} testID={`admin-user-device-${u.id}`}>
+          {u.has_device ? `Aparelho vinculado em ${fmt(u.device_bound_at)}` : "Nenhum aparelho vinculado (o próximo a entrar fica vinculado)"}
+        </Text>
+        {u.has_device ? (
+          <Pressable testID={`admin-reset-device-${u.id}`} disabled={props.busy} onPress={props.onResetDevice} style={styles.deviceBtn}>
+            <Text style={styles.deviceBtnText}>Trocar aparelho</Text>
+          </Pressable>
+        ) : null}
+      </View>
       <Text style={styles.grantLabel}>{renew ? "Renovar a partir de hoje:" : "Liberar por:"}</Text>
       <View style={styles.grantRow}>
         {GRANTS.map((g) => (
@@ -318,6 +331,10 @@ const useStyles = makeStyles((c) => ({
   meta: { fontFamily: fonts.body, fontSize: 11, color: c.muted },
   actions: { flexDirection: "row", alignItems: "center", gap: 8 },
   validity: { fontFamily: fonts.bodySemi, fontSize: 13 },
+  deviceRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  deviceText: { flex: 1, fontFamily: fonts.body, fontSize: 12, color: c.onSurfaceSecondary },
+  deviceBtn: { height: 36, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: c.border, justifyContent: "center" },
+  deviceBtnText: { fontFamily: fonts.bodySemi, fontSize: 12, color: c.onSurface },
   grantLabel: { fontFamily: fonts.bodyMedium, fontSize: 12, color: c.onSurfaceTertiary },
   grantRow: { flexDirection: "row", gap: 6 },
   grantBtn: { flex: 1, height: 44, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center" },
