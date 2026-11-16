@@ -51,3 +51,4 @@ Follow-up: "Adicione ao bot para ele ficar off-line na rapidocar sempre que acei
 - Painel "Hoje" card: accepted/rejected per app (GET /api/rides/summary?since=<local midnight ISO>).
 - New app icon/splash/login logo (RapidoChecker artwork, white background).
 - Admin password changed via secure secrets card (ADMIN_PASSWORD).
+- Iteration 10-11: admin "Vencidos" tab; Painel warning when access ends in <=3 days; login explains automatic sign-out (expired/blocked); app renamed to RapidoChecker.

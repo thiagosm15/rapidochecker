@@ -340,7 +340,7 @@ def settings_api(s: Settings) -> dict:
 # ---------- Routes: driver auth ----------
 @api_router.get("/")
 async def root():
-    return {"message": "AutoCorrida API"}
+    return {"message": "RapidoChecker API"}
 
 
 @api_router.post("/auth/cpf")
@@ -536,11 +536,11 @@ async def admin_delete_user(user_id: str, _: CurrentAdmin):
 
 # ---------- Privacy policy (public) ----------
 PRIVACY_HTML = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>AutoCorrida - Política de Privacidade</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>RapidoChecker - Política de Privacidade</title>
 <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:0 auto;padding:24px;line-height:1.6;color:#111}
 h1{font-size:26px}h2{font-size:18px;margin-top:28px}</style></head><body>
-<h1>Política de Privacidade - AutoCorrida</h1><p>Última atualização: junho de 2026</p>
-<h2>1. O que o app faz</h2><p>O AutoCorrida ajuda motoristas a aceitar automaticamente ofertas de corrida do RapidoCar e do
+<h1>Política de Privacidade - RapidoChecker</h1><p>Última atualização: junho de 2026</p>
+<h2>1. O que o app faz</h2><p>O RapidoChecker ajuda motoristas a aceitar automaticamente ofertas de corrida do RapidoCar e do
 MooveCar que atendem aos filtros definidos pelo próprio motorista (preço por km, valor mínimo, distância e horário).</p>
 <h2>2. Uso do Serviço de Acessibilidade (Android)</h2><p>Com a sua permissão, o app usa a API de Acessibilidade do Android
 para <b>ler os textos exibidos</b> nas telas do RapidoCar e do MooveCar (valor da corrida, distâncias e nomes de botões)
@@ -556,7 +556,7 @@ seus dados com terceiros e não usamos os dados para publicidade.</p>
 Cada motorista só acessa os próprios dados.</p>
 <h2>6. Seus direitos (LGPD)</h2><p>Você pode apagar seu histórico ou excluir sua conta e todos os dados pelo próprio app
 (Conta &gt; Excluir conta).</p>
-<h2>7. Aviso</h2><p>O AutoCorrida não é afiliado ao RapidoCar nem ao MooveCar. O uso de automação pode estar sujeito aos termos
+<h2>7. Aviso</h2><p>O RapidoChecker não é afiliado ao RapidoCar nem ao MooveCar. O uso de automação pode estar sujeito aos termos
 desses apps; o motorista é responsável pelo uso.</p>
 </body></html>"""
 

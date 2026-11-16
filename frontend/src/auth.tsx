@@ -14,6 +14,9 @@ type AuthState = {
   user: User | null;
   signIn: (token: string, user: User) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Why the app signed the driver out on its own (e.g. access expired). */
+  exitReason: string | null;
+  clearExitReason: () => void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -22,6 +25,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [exitReason, setExitReason] = useState<string | null>(null);
+  const clearExitReason = useCallback(() => setExitReason(null), []);
 
   const signOut = useCallback(async () => {
     resetNativeForLogout();
@@ -43,7 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setOnUnauthorized(() => {
+    setOnUnauthorized((reason) => {
+      setExitReason(reason ?? null);
       signOut();
     });
     (async () => {
@@ -65,7 +71,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setOnUnauthorized(null);
   }, [signOut]);
 
-  const value = useMemo(() => ({ ready, token, user, signIn, signOut }), [ready, token, user, signIn, signOut]);
+  const value = useMemo(
+    () => ({ ready, token, user, signIn, signOut, exitReason, clearExitReason }),
+    [ready, token, user, signIn, signOut, exitReason, clearExitReason],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

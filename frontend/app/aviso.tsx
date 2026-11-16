@@ -38,7 +38,7 @@ export default function Aviso() {
         </View>
         <Text style={styles.title}>Uso do Serviço de Acessibilidade</Text>
         <Text style={styles.lead}>
-          Para aceitar corridas sozinho, o AutoCorrida usa a API de Acessibilidade do Android. Leia como ela é usada antes de ativar.
+          Para aceitar corridas sozinho, o RapidoChecker usa a API de Acessibilidade do Android. Leia como ela é usada antes de ativar.
         </Text>
         {ITEMS.map((it, i) => (
           <Animated.View key={it.title} entering={FadeInDown.delay(80 * i)} style={styles.item}>

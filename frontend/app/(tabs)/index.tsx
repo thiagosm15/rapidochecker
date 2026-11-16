@@ -113,7 +113,7 @@ export default function Painel() {
     ? { tone: "info" as const, icon: "information-circle" as const, title: "Modo prévia", text: "A automação real só funciona no APK Android." }
     : serviceOn
       ? { tone: "success" as const, icon: "checkmark-circle" as const, title: "Serviço de acessibilidade ativo", text: "Pronto para ler ofertas do RapidoCar e do MooveCar." }
-      : { tone: "error" as const, icon: "alert-circle" as const, title: "Serviço de acessibilidade inativo", text: "Ative \"AutoCorrida\" nas configurações de acessibilidade." };
+      : { tone: "error" as const, icon: "alert-circle" as const, title: "Serviço de acessibilidade inativo", text: "Ative \"RapidoChecker\" nas configurações de acessibilidade." };
   const toneColor = { info: colors.info, success: colors.success, error: colors.error }[banner.tone];
   const toneBg = { info: colors.infoTint, success: colors.successTint, error: colors.errorTint }[banner.tone];
 

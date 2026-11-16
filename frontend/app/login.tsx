@@ -1,7 +1,7 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
 import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
@@ -19,11 +19,23 @@ export default function Login() {
   const router = useRouter();
   const { colors } = useTheme();
   const styles = useStyles();
-  const { signIn } = useAuth();
+  const { signIn, exitReason, clearExitReason } = useAuth();
   const [cpf, setCpf] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(false);
+
+  // Explain automatic sign-outs (expired period, access revoked).
+  useEffect(() => {
+    if (!exitReason) return;
+    const expired = exitReason.toLowerCase().includes("venceu");
+    setNotice(
+      expired
+        ? { tone: "error", title: "Prazo de acesso vencido", text: "Seu período de acesso terminou. Fale com o responsável para renovar." }
+        : { tone: "error", title: "Você saiu do app", text: `${exitReason}. Fale com o responsável.` },
+    );
+    clearExitReason();
+  }, [exitReason, clearExitReason]);
 
   const submit = async () => {
     setError(null);
@@ -61,7 +73,7 @@ export default function Login() {
           <View style={styles.logo}>
             <Image source={require("@/assets/images/logo.png")} style={styles.logoImg} resizeMode="contain" testID="app-logo" />
           </View>
-          <Text style={styles.title}>AutoCorrida</Text>
+          <Text style={styles.title}>RapidoChecker</Text>
           <Text style={styles.subtitle}>Auto-aceite de corridas no RapidoCar e no MooveCar.</Text>
         </Animated.View>
 

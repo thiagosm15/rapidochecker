@@ -71,7 +71,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const sentToken = authToken;
   const { res, data, error } = await send<T>(path, sentToken, init);
   // Only sign out if the token that was rejected is still the active one.
-  if (res.status === 401 && sentToken && sentToken === authToken) onUnauthorized?.();
+  if (res.status === 401 && sentToken && sentToken === authToken) onUnauthorized?.(error?.message);
   if (error) throw error;
   return data as T;
 }
@@ -85,11 +85,11 @@ async function adminReq<T>(path: string, token: string, init?: RequestInit): Pro
 
 // ---------- Auth ----------
 let authToken: string | null = null;
-let onUnauthorized: (() => void) | null = null;
+let onUnauthorized: ((reason?: string) => void) | null = null;
 export function setAuthToken(t: string | null) {
   authToken = t;
 }
-export function setOnUnauthorized(fn: (() => void) | null) {
+export function setOnUnauthorized(fn: ((reason?: string) => void) | null) {
   onUnauthorized = fn;
 }
 
