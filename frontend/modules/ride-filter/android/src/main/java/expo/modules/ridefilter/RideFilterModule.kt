@@ -35,14 +35,6 @@ class RideFilterModule : Module() {
       RideFilterStore.prefs(context).getString(RideFilterStore.KEY_EVENTS, "[]") ?: "[]"
     }
 
-    Function("getSyncState") {
-      RideFilterStore.syncState(context)
-    }
-
-    Function("resetBusy99") {
-      RideFilterStore.resetBusy99(context)
-    }
-
     Function("setLearning") { on: Boolean ->
       RideFilterStore.setLearning(context, on)
     }

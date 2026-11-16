@@ -21,60 +21,20 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * 1) Reads RapidoCar ride offers and taps "Aceitar" when they pass the user's filters.
- * 2) 99 sync: when a ride is in progress on the 99 app, opens RapidoCar and goes offline;
- *    when the 99 ride ends, opens RapidoCar and goes back online. Then returns to the 99 app.
+ * Reads ride offers of RapidoCar and MooveCar, each with its own filters, and taps "Aceitar"
+ * when the offer passes them. Every evaluated offer is stored so the JS app can sync it.
  */
 class RideAccessibilityService : AccessibilityService() {
-  private var lastSignature = ""
-  private var lastTime = 0L
-
-  private var pendingAction: String? = null // "go_offline" | "go_online"
-  private var pendingSince = 0L
-  private var returnPackage: String? = null
   private val handler = Handler(Looper.getMainLooper())
+  private val lastSignature = HashMap<String, String>()
+  private val lastTime = HashMap<String, Long>()
+  private val lastCapture = HashMap<String, Long>()
 
   private val priceRe = Regex("""R\$\s*(\d{1,3}(?:\.\d{3})*,\d{1,2}|\d+(?:[.,]\d{1,2})?)""")
   private val kmRe = Regex("""(\d+(?:[.,]\d+)?)\s*km\b""", RegexOption.IGNORE_CASE)
 
-  override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-    if (event == null) return
-    val pkg = event.packageName?.toString() ?: return
-    val pkgLower = pkg.lowercase()
-    if (pkg == packageName) return
-    val cfg = RideFilterStore.config(this) ?: return
-
-    if (RideFilterStore.isLearning(this)) captureScreen(pkg, cfg)
-
-    // ---- 99 app: detect ride start / end ----
-    if (cfg.optBoolean("sync_99_enabled", false)) {
-      val p99 = cfg.optString("ninety_nine_package", "app99").trim().lowercase()
-      if (p99.isNotEmpty() && pkgLower.contains(p99)) {
-        handle99(pkg, cfg)
-        return
-      }
-    }
-
-    val target = cfg.optString("target_package", "rapido").trim().lowercase()
-    if (target.isEmpty() || !pkgLower.contains(target)) return
-    val root = rootInActiveWindow ?: return
-
-    // ---- RapidoCar: finish a pending offline/online switch ----
-    if (pendingAction != null) {
-      handlePending(root, cfg)
-      return
-    }
-
-    if (!cfg.optBoolean("auto_accept", false)) return
-    if (RideFilterStore.isBusy99(this)) return // never accept while driving a 99 ride
-    if (!inSchedule(cfg)) return // outside working hours
-
-    acceptIfMatches(root, cfg, pkg)
-  }
-
-  override fun onInterrupt() {}
-
   companion object {
+    val APP_KEYS = listOf("rapido", "moove")
     @Volatile var instance: RideAccessibilityService? = null
   }
 
@@ -89,91 +49,50 @@ class RideAccessibilityService : AccessibilityService() {
     super.onDestroy()
   }
 
+  override fun onInterrupt() {}
+
+  override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+    if (event == null) return
+    val pkg = event.packageName?.toString() ?: return
+    if (pkg == packageName) return
+    val cfg = RideFilterStore.config(this) ?: return
+    val apps = cfg.optJSONObject("apps") ?: return
+    val key = matchApp(pkg.lowercase(), apps) ?: return
+    val appCfg = apps.optJSONObject(key) ?: return
+
+    if (RideFilterStore.isLearning(this)) captureScreen(key, pkg)
+
+    if (!appCfg.optBoolean("enabled", false)) return
+    if (!inSchedule(cfg)) return
+    val root = rootInActiveWindow ?: return
+    acceptIfMatches(root, key, appCfg, cfg)
+  }
+
+  private fun matchApp(pkgLower: String, apps: JSONObject): String? {
+    for (key in APP_KEYS) {
+      val target = apps.optJSONObject(key)?.optString("target_package", "")?.trim()?.lowercase() ?: continue
+      if (target.isNotEmpty() && pkgLower.contains(target)) return key
+    }
+    return null
+  }
+
   /**
-   * Speed: ask Android to deliver events ONLY from RapidoCar (and 99 when sync is on),
-   * so the service never wastes time on other apps. Called on connect and on every config change.
+   * Speed: ask Android to deliver events ONLY from RapidoCar and MooveCar.
+   * Called on connect and on every config change.
    */
   fun applyPackageFilter() {
     handler.post {
-      val cfg = RideFilterStore.config(this) ?: return@post
-      val target = cfg.optString("target_package", "rapido").trim().lowercase()
-      val p99 = cfg.optString("ninety_nine_package", "app99").trim().lowercase()
-      val pkgs = mutableListOf<String>()
-      findLaunchablePackage(target)?.let { pkgs.add(it) }
-      if (cfg.optBoolean("sync_99_enabled", false)) findLaunchablePackage(p99)?.let { pkgs.add(it) }
+      val apps = RideFilterStore.config(this)?.optJSONObject("apps") ?: return@post
+      val pkgs = APP_KEYS.mapNotNull { k ->
+        val target = apps.optJSONObject(k)?.optString("target_package", "")?.trim()?.lowercase() ?: ""
+        findLaunchablePackage(target)
+      }.distinct()
       val info = serviceInfo ?: return@post
       // If nothing matched (app not installed / wrong name), listen to all apps so nothing is missed.
       info.packageNames = if (pkgs.isEmpty()) null else pkgs.toTypedArray()
       info.notificationTimeout = 0
       serviceInfo = info
     }
-  }
-
-  // ---------------- 99 sync ----------------
-
-  private fun handle99(pkg99: String, cfg: JSONObject) {
-    if (pendingAction != null) return
-    val root = rootInActiveWindow ?: return
-    val texts = mutableListOf<String>()
-    collectTexts(root, texts, 0)
-    val busy = RideFilterStore.isBusy99(this)
-    val endTexts = readList(cfg.optJSONArray("ride_end_texts"), listOf("Corrida finalizada", "Avaliar passageiro"))
-    val activeTexts = readList(cfg.optJSONArray("ride_active_texts"), listOf("Iniciar corrida", "Finalizar corrida"))
-
-    if (busy && containsAny(texts, endTexts)) {
-      RideFilterStore.setBusy99(this, false)
-      RideFilterStore.appendStatus(this, "99_ride_ended")
-      startPending("go_online", pkg99, cfg)
-    } else if (!busy && containsAny(texts, activeTexts)) {
-      RideFilterStore.setBusy99(this, true)
-      RideFilterStore.appendStatus(this, "99_ride_started")
-      startPending("go_offline", pkg99, cfg)
-    }
-  }
-
-  private fun startPending(action: String, pkg99: String, cfg: JSONObject) {
-    val target = cfg.optString("target_package", "rapido").trim().lowercase()
-    val rapidoPkg = findLaunchablePackage(target) ?: run {
-      RideFilterStore.appendStatus(this, "rapido_not_found")
-      return
-    }
-    pendingAction = action
-    pendingSince = System.currentTimeMillis()
-    returnPackage = pkg99
-    launch(rapidoPkg)
-    val token = pendingSince
-    handler.postDelayed({
-      if (pendingAction != null && pendingSince == token) {
-        RideFilterStore.appendStatus(this, "${action}_timeout")
-        pendingAction = null
-        returnTo99()
-      }
-    }, 12000)
-  }
-
-  private fun handlePending(root: AccessibilityNodeInfo, cfg: JSONObject) {
-    val action = pendingAction ?: return
-    val labels = if (action == "go_offline") {
-      readList(cfg.optJSONArray("offline_texts"), listOf("Ficar offline", "Desconectar"))
-    } else {
-      readList(cfg.optJSONArray("online_texts"), listOf("Ficar online", "Conectar"))
-    }
-    val node = findLabeledNode(root, labels) ?: return
-    clickNode(node)
-    pendingAction = null
-    RideFilterStore.appendStatus(this, if (action == "go_offline") "rapido_offline" else "rapido_online")
-    handler.postDelayed({ returnTo99() }, 900)
-  }
-
-  private fun returnTo99() {
-    returnPackage?.let { launch(it) }
-    returnPackage = null
-  }
-
-  private fun launch(pkg: String) {
-    val intent = packageManager.getLaunchIntentForPackage(pkg) ?: return
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-    try { startActivity(intent) } catch (e: Exception) { /* ignored */ }
   }
 
   private fun findLaunchablePackage(sub: String): String? {
@@ -184,16 +103,15 @@ class RideAccessibilityService : AccessibilityService() {
       .firstOrNull { it.lowercase().contains(sub) && it != packageName }
   }
 
-  // ---------------- RapidoCar auto-accept ----------------
+  // ---------------- auto-accept ----------------
 
-  private fun acceptIfMatches(root: AccessibilityNodeInfo, cfg: JSONObject, pkg: String) {
+  private fun acceptIfMatches(root: AccessibilityNodeInfo, key: String, appCfg: JSONObject, cfg: JSONObject) {
+    // Cheapest check first: is there an accept button on screen at all?
+    val button = findLabeledNode(root, readList(appCfg.optJSONArray("accept_texts"), listOf("Aceitar", "Accept"))) ?: return
+
     val texts = mutableListOf<String>()
     collectTexts(root, texts, 0)
     val all = texts.joinToString(" | ")
-
-    val acceptTexts = readList(cfg.optJSONArray("accept_texts"), listOf("Aceitar", "Accept"))
-    val button = findLabeledNode(root, acceptTexts) ?: return
-
     val price = priceRe.find(all)?.groupValues?.get(1)?.let { parseNumber(it) } ?: return
     val kms = kmRe.findAll(all).mapNotNull { parseNumber(it.groupValues[1]) }.toList()
     if (kms.isEmpty()) return
@@ -203,15 +121,15 @@ class RideAccessibilityService : AccessibilityService() {
 
     val signature = "$price|$tripKm|$pickupKm"
     val now = System.currentTimeMillis()
-    if (signature == lastSignature && now - lastTime < 20000) return
-    lastSignature = signature
-    lastTime = now
+    if (signature == lastSignature[key] && now - (lastTime[key] ?: 0L) < 20000) return
+    lastSignature[key] = signature
+    lastTime[key] = now
 
     val ppk = Math.round(price / tripKm * 100.0) / 100.0
     val reasons = JSONArray()
-    if (ppk < cfg.optDouble("min_price_per_km", 0.0)) reasons.put("R$/km abaixo do mínimo")
-    if (price < cfg.optDouble("min_fare", 0.0)) reasons.put("Valor abaixo do mínimo")
-    if (pickupKm > cfg.optDouble("max_pickup_km", Double.MAX_VALUE)) reasons.put("Busca muito longe")
+    if (ppk < appCfg.optDouble("min_price_per_km", 0.0)) reasons.put("R$/km abaixo do mínimo")
+    if (price < appCfg.optDouble("min_fare", 0.0)) reasons.put("Valor abaixo do mínimo")
+    if (pickupKm > appCfg.optDouble("max_pickup_km", Double.MAX_VALUE)) reasons.put("Busca muito longe")
 
     val accepted = reasons.length() == 0
     if (accepted) {
@@ -220,30 +138,21 @@ class RideAccessibilityService : AccessibilityService() {
     }
 
     RideFilterStore.appendEvent(this, JSONObject().apply {
+      put("app", key)
+      put("source", if (key == "moove") "moovecar" else "rapidocar")
       put("price", price)
       put("trip_km", tripKm)
       put("pickup_km", pickupKm)
       put("price_per_km", ppk)
       put("accepted", accepted)
       put("reasons", reasons)
-      put("source", "rapidocar")
       put("created_at", isoNow())
     })
   }
 
-  // ---------------- helpers ----------------
+  // ---------------- learning mode ----------------
 
-  private val lastCapture = HashMap<String, Long>()
-
-  private fun captureScreen(pkg: String, cfg: JSONObject) {
-    val lower = pkg.lowercase()
-    val target = cfg.optString("target_package", "rapido").trim().lowercase()
-    val p99 = cfg.optString("ninety_nine_package", "app99").trim().lowercase()
-    val key = when {
-      target.isNotEmpty() && lower.contains(target) -> "rapido"
-      p99.isNotEmpty() && lower.contains(p99) -> "99"
-      else -> return
-    }
+  private fun captureScreen(key: String, pkg: String) {
     val now = System.currentTimeMillis()
     if (now - (lastCapture[key] ?: 0L) < 1500) return
     val root = rootInActiveWindow ?: return
@@ -254,6 +163,8 @@ class RideAccessibilityService : AccessibilityService() {
     val clean = texts.map { it.trim() }.filter { it.isNotEmpty() && it.length <= 60 }.distinct().take(120)
     if (clean.isNotEmpty()) RideFilterStore.saveScreen(this, key, pkg, clean)
   }
+
+  // ---------------- helpers ----------------
 
   /** Days: 0=Sunday..6=Saturday. Times "HH:MM". Window may cross midnight. */
   private fun inSchedule(cfg: JSONObject): Boolean {
@@ -273,9 +184,7 @@ class RideAccessibilityService : AccessibilityService() {
 
   private fun toMinutes(hhmm: String): Int {
     val parts = hhmm.split(":")
-    val h = parts.getOrNull(0)?.toIntOrNull() ?: 0
-    val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
-    return h * 60 + m
+    return (parts.getOrNull(0)?.toIntOrNull() ?: 0) * 60 + (parts.getOrNull(1)?.toIntOrNull() ?: 0)
   }
 
   private fun playAlert() {
@@ -304,9 +213,6 @@ class RideAccessibilityService : AccessibilityService() {
     if (arr == null || arr.length() == 0) return fallback
     return (0 until arr.length()).map { arr.optString(it).trim() }.filter { it.isNotEmpty() }
   }
-
-  private fun containsAny(texts: List<String>, markers: List<String>): Boolean =
-    texts.any { t -> markers.any { m -> t.contains(m, ignoreCase = true) } }
 
   private fun parseNumber(raw: String): Double? {
     val s = raw.trim()

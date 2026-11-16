@@ -9,9 +9,8 @@ object RideFilterStore {
   private const val PREFS = "ride_filter_prefs"
   const val KEY_CONFIG = "config"
   const val KEY_EVENTS = "events"
-  private const val KEY_BUSY_99 = "busy_99"
-  private const val KEY_BUSY_99_SINCE = "busy_99_since"
-  private const val KEY_STATUS_LOG = "status_log"
+  private const val KEY_LEARNING = "learning"
+  private const val KEY_SCREEN_PREFIX = "screen_"
   private const val MAX_EVENTS = 300
 
   fun prefs(context: Context): SharedPreferences =
@@ -30,12 +29,7 @@ object RideFilterStore {
     return parsed
   }
 
-  fun isBusy99(context: Context): Boolean = prefs(context).getBoolean(KEY_BUSY_99, false)
-
-  // ---- Learning mode: capture visible texts of RapidoCar / 99 screens ----
-  private const val KEY_LEARNING = "learning"
-  private const val KEY_SCREEN_PREFIX = "screen_"
-
+  // ---- Learning mode: capture visible texts of RapidoCar / MooveCar screens ----
   fun isLearning(context: Context): Boolean = prefs(context).getBoolean(KEY_LEARNING, false)
 
   fun setLearning(context: Context, on: Boolean) {
@@ -51,7 +45,7 @@ object RideFilterStore {
     prefs(context).edit().putString(KEY_SCREEN_PREFIX + key, obj.toString()).apply()
   }
 
-  /** JSON: {learning, rapido: {...}|null, ninety_nine: {...}|null} */
+  /** JSON: {learning, rapido: {...}|null, moove: {...}|null} */
   fun capturedScreens(context: Context): String {
     val p = prefs(context)
     fun read(k: String): Any = p.getString(KEY_SCREEN_PREFIX + k, null)?.let {
@@ -60,36 +54,8 @@ object RideFilterStore {
     return JSONObject().apply {
       put("learning", p.getBoolean(KEY_LEARNING, false))
       put("rapido", read("rapido"))
-      put("ninety_nine", read("99"))
+      put("moove", read("moove"))
     }.toString()
-  }
-
-  fun setBusy99(context: Context, busy: Boolean) {
-    prefs(context).edit()
-      .putBoolean(KEY_BUSY_99, busy)
-      .putLong(KEY_BUSY_99_SINCE, System.currentTimeMillis())
-      .apply()
-  }
-
-  /** JSON: {busy_99, since, log:[{type, at}]} */
-  fun syncState(context: Context): String {
-    val p = prefs(context)
-    val log = try { JSONArray(p.getString(KEY_STATUS_LOG, "[]")) } catch (e: Exception) { JSONArray() }
-    return JSONObject().apply {
-      put("busy_99", p.getBoolean(KEY_BUSY_99, false))
-      put("since", p.getLong(KEY_BUSY_99_SINCE, 0L))
-      put("log", log)
-    }.toString()
-  }
-
-  fun resetBusy99(context: Context) = setBusy99(context, false)
-
-  @Synchronized
-  fun appendStatus(context: Context, type: String) {
-    val p = prefs(context)
-    val current = try { JSONArray(p.getString(KEY_STATUS_LOG, "[]")) } catch (e: Exception) { JSONArray() }
-    current.put(JSONObject().apply { put("type", type); put("at", System.currentTimeMillis()) })
-    p.edit().putString(KEY_STATUS_LOG, trim(current, 30).toString()).apply()
   }
 
   @Synchronized
@@ -97,13 +63,9 @@ object RideFilterStore {
     val p = prefs(context)
     val current = try { JSONArray(p.getString(KEY_EVENTS, "[]")) } catch (e: Exception) { JSONArray() }
     current.put(event)
-    p.edit().putString(KEY_EVENTS, trim(current, MAX_EVENTS).toString()).apply()
-  }
-
-  private fun trim(arr: JSONArray, max: Int): JSONArray {
     val out = JSONArray()
-    val start = maxOf(0, arr.length() - max)
-    for (i in start until arr.length()) out.put(arr.get(i))
-    return out
+    val start = maxOf(0, current.length() - MAX_EVENTS)
+    for (i in start until current.length()) out.put(current.get(i))
+    p.edit().putString(KEY_EVENTS, out.toString()).apply()
   }
 }

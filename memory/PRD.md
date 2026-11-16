@@ -38,3 +38,10 @@ Follow-up: "Adicione ao bot para ele ficar off-line na rapidocar sempre que acei
 - Monthly report (/relatorio, /api/stats/monthly)
 - Logout resets native service config; Stack.Protected auth gating
 - Speed: notificationTimeout=0, events filtered to RapidoCar/99 packages only, cached config parsing
+
+## Update (2026-06, iterations 6-8)
+- Login is CPF only (POST /api/auth/cpf). New CPFs are "pending" until the owner approves them in the in-app Área do administrador (/admin, ADMIN_PASSWORD in backend/.env). Blocking a driver signs them out.
+- Removed: 99 integration, earnings counters (today/weekly/monthly report), simulator tab and endpoints
+- Added MooveCar: the Android service reads RapidoCar and MooveCar, each with its own filters (settings.apps.rapido / settings.apps.moove)
+- Rate limits use the real client IP (CF-Connecting-IP / XFF[-3]); admin login has a global limit of 10 failures per 15 min
+- Root cause of the user's error: the old APK had no login but called the new auth-protected backend → new build required

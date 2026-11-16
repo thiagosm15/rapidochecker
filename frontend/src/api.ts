@@ -2,19 +2,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 const BASE = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
 
-export type Settings = {
-  auto_accept: boolean;
+export type AppKey = "rapido" | "moove";
+export const APP_KEYS: AppKey[] = ["rapido", "moove"];
+export const APP_LABELS: Record<AppKey, string> = { rapido: "RapidoCar", moove: "MooveCar" };
+
+export type AppFilters = {
+  enabled: boolean;
   min_price_per_km: number;
   min_fare: number;
   max_pickup_km: number;
   accept_texts: string[];
   target_package: string;
-  sync_99_enabled: boolean;
-  ninety_nine_package: string;
-  ride_active_texts: string[];
-  ride_end_texts: string[];
-  offline_texts: string[];
-  online_texts: string[];
+};
+
+export type Settings = {
+  apps: Record<AppKey, AppFilters>;
   schedule_enabled: boolean;
   schedule_start: string;
   schedule_end: string;
@@ -22,65 +24,63 @@ export type Settings = {
   alert_enabled: boolean;
 };
 
-export type WeeklyDay = { date: string; label: string; earnings: number; accepted: number; total: number; accept_rate: number };
-export type Weekly = { days: WeeklyDay[]; week_earnings: number; week_accepted: number; week_total: number };
-
-const tzOffset = () => -new Date().getTimezoneOffset();
-
-export function useWeekly() {
-  return useQuery({ queryKey: ["stats", "weekly"], queryFn: () => req<Weekly>(`/stats/weekly?tz=${tzOffset()}`) });
-}
+export type SettingsUpdate = Partial<Omit<Settings, "apps">> & { apps?: Partial<Record<AppKey, Partial<AppFilters>>> };
 
 export type Ride = {
   id: string;
+  app: AppKey;
   price: number;
   trip_km: number;
   pickup_km: number;
   price_per_km: number;
   accepted: boolean;
   reasons: string[];
-  source: "simulador" | "rapidocar";
-  pickup?: string | null;
-  dropoff?: string | null;
+  source: "rapidocar" | "moovecar";
   created_at: string;
 };
 
-export type RideIn = Omit<Ride, "id" | "pickup" | "dropoff">;
-
-export type Stats = {
-  today_earnings: number;
-  today_total: number;
-  today_accepted: number;
-  accept_rate: number;
-};
-
+export type RideIn = Omit<Ride, "id">;
 export type RideStatus = "all" | "accepted" | "rejected";
+export type RideAppFilter = "all" | AppKey;
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const sentToken = authToken;
+type HttpError = Error & { status?: number };
+
+async function send<T>(path: string, token: string | null, init?: RequestInit): Promise<{ res: Response; data?: T; error?: HttpError }> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(sentToken ? { Authorization: `Bearer ${sentToken}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers || {}),
     },
   });
-  // Only sign out if the token that was rejected is still the active one
-  // (stale retries from a previous session must not kick out a fresh login).
-  if (res.status === 401 && sentToken && sentToken === authToken) onUnauthorized?.();
-  if (!res.ok) {
-    let detail = `Erro ${res.status}`;
-    try {
-      const body = await res.json();
-      if (typeof body?.detail === "string") detail = body.detail;
-      else if (Array.isArray(body?.detail)) detail = "Verifique os dados informados.";
-    } catch {
-      // keep generic message
-    }
-    throw Object.assign(new Error(detail), { status: res.status });
+  if (res.ok) return { res, data: (await res.json()) as T };
+  let detail = `Erro ${res.status}`;
+  try {
+    const body = await res.json();
+    if (typeof body?.detail === "string") detail = body.detail;
+    else if (Array.isArray(body?.detail)) detail = "Verifique os dados informados.";
+  } catch {
+    // keep generic message
   }
-  return res.json() as Promise<T>;
+  return { res, error: Object.assign(new Error(detail), { status: res.status }) };
+}
+
+/** Driver requests (uses the signed-in driver's token). */
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const sentToken = authToken;
+  const { res, data, error } = await send<T>(path, sentToken, init);
+  // Only sign out if the token that was rejected is still the active one.
+  if (res.status === 401 && sentToken && sentToken === authToken) onUnauthorized?.();
+  if (error) throw error;
+  return data as T;
+}
+
+/** Admin requests (separate admin token, never signs the driver out). */
+async function adminReq<T>(path: string, token: string, init?: RequestInit): Promise<T> {
+  const { data, error } = await send<T>(path, token, init);
+  if (error) throw error;
+  return data as T;
 }
 
 // ---------- Auth ----------
@@ -93,52 +93,54 @@ export function setOnUnauthorized(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
 
-export type User = { id: string; email: string; name: string };
-export type AuthResponse = { access_token: string; token_type: string; user: User };
+export type UserStatus = "pending" | "approved" | "blocked";
+export type User = { id: string; cpf: string; name: string; status: UserStatus };
+export type CpfLoginResponse =
+  | { status: "approved"; access_token: string; token_type: string; user: User }
+  | { status: "pending" | "blocked" };
 
 export const PRIVACY_URL = `${BASE}/privacy`;
 
-export const apiLogin = (email: string, password: string) =>
-  req<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
-export const apiRegister = (name: string, email: string, password: string) =>
-  req<AuthResponse>("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) });
+export const apiCpfLogin = (cpf: string) =>
+  req<CpfLoginResponse>("/auth/cpf", { method: "POST", body: JSON.stringify({ cpf }) });
 export const apiDeleteAccount = () => req<{ deleted: boolean }>("/auth/account", { method: "DELETE" });
 export const apiClearHistory = () => req<{ deleted: number }>("/rides", { method: "DELETE" });
 
-// ---------- Monthly report ----------
-export type HourStat = { hour: number; earnings: number; accepted: number; total: number };
-export type DayStat = { day: number; label: string; earnings: number; accepted: number; total: number };
-export type Monthly = {
-  month: string;
-  label: string;
-  earnings: number;
-  accepted: number;
-  total: number;
-  accept_rate: number;
-  km: number;
-  avg_price_per_km: number;
-  avg_ride: number;
-  active_days: number;
-  avg_per_day: number;
-  best_hours: HourStat[];
-  best_days: DayStat[];
-  hours: HourStat[];
-  rejection_reasons: { reason: string; count: number }[];
-};
+// ---------- Admin ----------
+export type AdminUser = User & { created_at: string; status_changed_at: string | null; last_login_at: string | null };
+export type AdminUsers = { users: AdminUser[]; counts: Record<UserStatus, number> };
 
-export function useMonthly(month: string) {
-  return useQuery({ queryKey: ["stats", "monthly", month], queryFn: () => req<Monthly>(`/stats/monthly?tz=${tzOffset()}&month=${month}`) });
-}
+export const adminLogin = (password: string) =>
+  adminReq<{ access_token: string }>("/admin/login", "", { method: "POST", body: JSON.stringify({ password }) });
+export const adminListUsers = (token: string, status: "all" | UserStatus) => adminReq<AdminUsers>(`/admin/users?status=${status}`, token);
+export const adminUpdateUser = (token: string, id: string, body: { status?: UserStatus; name?: string }) =>
+  adminReq<AdminUser>(`/admin/users/${id}`, token, { method: "PATCH", body: JSON.stringify(body) });
+export const adminDeleteUser = (token: string, id: string) => adminReq<{ deleted: boolean }>(`/admin/users/${id}`, token, { method: "DELETE" });
 
-function todayStartIso() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
+// ---------- Formatting ----------
 export const brl = (v: number) => `R$ ${v.toFixed(2).replace(".", ",")}`;
 export const num = (v: number, d = 1) => v.toFixed(d).replace(".", ",");
 
+export function maskCpf(v: string) {
+  const d = v.replace(/\D/g, "").slice(0, 11);
+  return d
+    .replace(/^(\d{3})(\d)/, "$1.$2")
+    .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d{1,2})$/, ".$1-$2");
+}
+
+export function isValidCpf(v: string) {
+  const c = v.replace(/\D/g, "");
+  if (c.length !== 11 || /^(\d)\1{10}$/.test(c)) return false;
+  for (const n of [9, 10]) {
+    let s = 0;
+    for (let i = 0; i < n; i++) s += Number(c[i]) * (n + 1 - i);
+    if (((s * 10) % 11) % 10 !== Number(c[n])) return false;
+  }
+  return true;
+}
+
+// ---------- Hooks ----------
 export function useSettings() {
   return useQuery({ queryKey: ["settings"], queryFn: () => req<Settings>("/settings") });
 }
@@ -146,28 +148,13 @@ export function useSettings() {
 export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: Partial<Settings>) => req<Settings>("/settings", { method: "PUT", body: JSON.stringify(body) }),
+    mutationFn: (body: SettingsUpdate) => req<Settings>("/settings", { method: "PUT", body: JSON.stringify(body) }),
     onSuccess: (data) => qc.setQueryData(["settings"], data),
   });
 }
 
-export function useStats() {
-  return useQuery({ queryKey: ["stats"], queryFn: () => req<Stats>(`/stats?since=${encodeURIComponent(todayStartIso())}`) });
-}
-
-export function useRides(status: RideStatus) {
-  return useQuery({ queryKey: ["rides", status], queryFn: () => req<Ride[]>(`/rides?status=${status}`) });
-}
-
-export function useSimulate() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => req<Ride>(`/simulate?tz=${tzOffset()}`, { method: "POST" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["stats"] });
-      qc.invalidateQueries({ queryKey: ["rides"] });
-    },
-  });
+export function useRides(status: RideStatus, app: RideAppFilter) {
+  return useQuery({ queryKey: ["rides", status, app], queryFn: () => req<Ride[]>(`/rides?status=${status}&app=${app}`) });
 }
 
 export function uploadRides(items: RideIn[]) {

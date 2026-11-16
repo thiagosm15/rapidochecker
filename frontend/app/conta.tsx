@@ -60,11 +60,11 @@ export default function Conta() {
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.profile}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{(user?.name || user?.email || "?").slice(0, 1).toUpperCase()}</Text>
+            <Text style={styles.avatarText}>{(user?.name || "M").slice(0, 1).toUpperCase()}</Text>
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.name} testID="account-name">{user?.name || "Motorista"}</Text>
-            <Text style={styles.email} testID="account-email">{user?.email}</Text>
+            <Text style={styles.email} testID="account-cpf">CPF {user?.cpf}</Text>
           </View>
         </View>
 

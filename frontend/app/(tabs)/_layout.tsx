@@ -12,7 +12,6 @@ type IconName = React.ComponentProps<typeof Ionicons>["name"];
 const TABS: { name: string; label: string; icon: IconName; sf: string }[] = [
   { name: "index", label: "Painel", icon: "speedometer", sf: "gauge.with.dots.needle.67percent" },
   { name: "filtros", label: "Filtros", icon: "options", sf: "slider.horizontal.3" },
-  { name: "simulador", label: "Simular", icon: "car-sport", sf: "car.fill" },
   { name: "historico", label: "Histórico", icon: "time", sf: "clock.fill" },
 ];
 

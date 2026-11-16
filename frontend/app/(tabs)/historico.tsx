@@ -3,7 +3,7 @@ import { useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { brl, num, Ride, RideStatus, useRides } from "@/src/api";
+import { APP_KEYS, APP_LABELS, brl, num, Ride, RideAppFilter, RideStatus, useRides } from "@/src/api";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { ErrorState, LoadingState } from "@/src/components/StateViews";
 import { fonts } from "@/src/fonts";
@@ -30,13 +30,29 @@ export default function Historico() {
   const { colors } = useTheme();
   const styles = useStyles();
   const [status, setStatus] = useState<RideStatus>("all");
-  const rides = useRides(status);
+  const [app, setApp] = useState<RideAppFilter>("all");
+  const rides = useRides(status, app);
 
   return (
     <View style={styles.screen} testID="historico-screen">
       <ScreenHeader title="Histórico" subtitle="Ofertas lidas e decisões tomadas" />
       <View style={styles.chipRow}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipContent}>
+          {APP_KEYS.map((k) => {
+            const active = app === k;
+            return (
+              <Pressable
+                key={k}
+                testID={`history-app-${k}`}
+                onPress={() => setApp(active ? "all" : k)}
+                hitSlop={{ top: 6, bottom: 6 }}
+                style={[styles.chip, active && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{APP_LABELS[k]}</Text>
+              </Pressable>
+            );
+          })}
+          <View style={styles.chipDivider} />
           {FILTERS.map((f) => {
             const active = f.key === status;
             return (
@@ -97,7 +113,7 @@ function RideRow({ ride }: { ride: Ride }) {
       </View>
       <View style={styles.rowBottom}>
         <View style={styles.tags}>
-          <View style={styles.tag}><Text style={styles.tagText}>{ride.source === "simulador" ? "Simulador" : "RapidoCar"}</Text></View>
+          <View style={styles.tag}><Text style={styles.tagText}>{APP_LABELS[ride.app] ?? "RapidoCar"}</Text></View>
           {ride.reasons.map((r) => (
             <View key={r} style={styles.tag}><Text style={styles.tagText}>{r}</Text></View>
           ))}
@@ -116,6 +132,7 @@ const useStyles = makeStyles((c) => ({
   chipActive: { backgroundColor: c.brandPrimary, borderColor: c.brandPrimary },
   chipText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: c.onSurfaceSecondary },
   chipTextActive: { color: c.onBrandPrimary },
+  chipDivider: { width: 1, height: 24, backgroundColor: c.border, flexShrink: 0 },
   list: { padding: 16 },
   row: { backgroundColor: c.surfaceSecondary, borderRadius: 8, borderLeftWidth: 4, padding: 12, gap: 6 },
   rowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

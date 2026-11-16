@@ -27,16 +27,17 @@ function AppStack() {
   // Protected groups unmount the whole signed-in stack on logout, so no stale screens remain.
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
-      <Stack.Protected guard={!!token}>
+      <Stack.Protected guard={!!token} redirectTo="/login">
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="aprender" />
-        <Stack.Screen name="relatorio" />
         <Stack.Screen name="conta" />
         <Stack.Screen name="aviso" />
       </Stack.Protected>
-      <Stack.Protected guard={!token}>
+      <Stack.Protected guard={!token} redirectTo="/">
         <Stack.Screen name="login" />
       </Stack.Protected>
+      {/* Owner-only area, protected by the admin password on the server */}
+      <Stack.Screen name="admin" />
     </Stack>
   );
 }

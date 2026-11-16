@@ -1,43 +1,37 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { AppState, Pressable, ScrollView, Text, View } from "react-native";
 import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Settings, useSettings, useUpdateSettings } from "@/src/api";
+import { APP_KEYS, APP_LABELS, AppKey, useSettings, useUpdateSettings } from "@/src/api";
 import { fonts } from "@/src/fonts";
 import { CapturedScreen, getCapturedScreens, nativeAvailable, pushConfig, setLearning } from "@/src/native/rideFilter";
 import { makeStyles, useTheme } from "@/src/theme";
 
-type ListKey = "accept_texts" | "offline_texts" | "online_texts" | "ride_active_texts" | "ride_end_texts";
+type ListKey = "accept_texts";
 
-const TARGETS: Record<"rapido" | "ninety_nine", { key: ListKey; label: string }[]> = {
-  rapido: [
-    { key: "accept_texts", label: "Botão Aceitar" },
-    { key: "offline_texts", label: "Ficar offline" },
-    { key: "online_texts", label: "Ficar online" },
-  ],
-  ninety_nine: [
-    { key: "ride_active_texts", label: "Corrida em andamento" },
-    { key: "ride_end_texts", label: "Fim da corrida" },
-  ],
+const TARGETS: Record<AppKey, { key: ListKey; label: string }[]> = {
+  rapido: [{ key: "accept_texts", label: "Botão Aceitar" }],
+  moove: [{ key: "accept_texts", label: "Botão Aceitar" }],
 };
 
 // Demo screen shown in the preview (no native module) so the flow can be tried.
-const DEMO: Record<"rapido" | "ninety_nine", CapturedScreen> = {
-  rapido: { package: "exemplo.rapidocar", at: Date.now(), texts: ["Nova corrida", "R$ 18,50", "1,2 km", "7,4 km", "Aceitar", "Recusar", "Ficar offline"] },
-  ninety_nine: { package: "com.app99.driver", at: Date.now(), texts: ["A caminho do passageiro", "Iniciar corrida", "Finalizar corrida", "Corrida finalizada"] },
+const DEMO: Record<AppKey, CapturedScreen> = {
+  rapido: { package: "exemplo.rapidocar", at: Date.now(), texts: ["Nova corrida", "R$ 18,50", "1,2 km", "7,4 km", "Aceitar", "Recusar"] },
+  moove: { package: "exemplo.moovecar", at: Date.now(), texts: ["Nova solicitação", "R$ 22,00", "0,8 km", "9,1 km", "Aceitar corrida", "Ignorar"] },
 };
 
 export default function Aprender() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ app?: string }>();
   const { colors } = useTheme();
   const styles = useStyles();
   const settings = useSettings();
   const update = useUpdateSettings();
-  const [app, setApp] = useState<"rapido" | "ninety_nine">("rapido");
+  const [app, setApp] = useState<AppKey>(params.app === "moove" ? "moove" : "rapido");
   const [learning, setLearningState] = useState(false);
   const [screens, setScreens] = useState(() => getCapturedScreens());
   const [picked, setPicked] = useState<string | null>(null);
@@ -72,13 +66,13 @@ export default function Aprender() {
 
   const assign = (key: ListKey, label: string) => {
     if (!picked || !s) return;
-    const current = s[key] as string[];
+    const current = s.apps[app][key];
     if (current.some((t) => t.toLowerCase() === picked.toLowerCase())) {
       setToast(`"${picked}" já está em ${label}`);
       setPicked(null);
       return;
     }
-    update.mutate({ [key]: [picked, ...current] } as Partial<Settings>, {
+    update.mutate({ apps: { [app]: { [key]: [picked, ...current] } } }, {
       onSuccess: (ns) => {
         pushConfig(ns);
         setToast(`"${picked}" adicionado em ${label}`);
@@ -121,7 +115,7 @@ export default function Aprender() {
         )}
 
         <View style={styles.segment}>
-          {(["rapido", "ninety_nine"] as const).map((k) => (
+          {APP_KEYS.map((k) => (
             <Pressable
               key={k}
               testID={`aprender-app-${k}`}
@@ -131,7 +125,7 @@ export default function Aprender() {
               }}
               style={[styles.segBtn, app === k && styles.segBtnActive]}
             >
-              <Text style={[styles.segText, app === k && styles.segTextActive]}>{k === "rapido" ? "RapidoCar" : "99"}</Text>
+              <Text style={[styles.segText, app === k && styles.segTextActive]}>{APP_LABELS[k]}</Text>
             </Pressable>
           ))}
         </View>
@@ -147,7 +141,7 @@ export default function Aprender() {
           <View style={styles.empty} testID="aprender-empty">
             <Ionicons name="scan-outline" size={40} color={colors.muted} />
             <Text style={styles.emptyText}>
-              Nenhuma tela lida ainda. Ligue a leitura e abra o {app === "rapido" ? "RapidoCar" : "app da 99"}.
+              Nenhuma tela lida ainda. Ligue a leitura e abra o {APP_LABELS[app]} numa oferta de corrida.
             </Text>
           </View>
         ) : (
@@ -203,7 +197,7 @@ export default function Aprender() {
             {TARGETS[app].map((t) => (
               <Text key={t.key} style={styles.cardText}>
                 <Text style={{ color: colors.onSurface }}>{t.label}: </Text>
-                {(s[t.key] as string[]).join(", ")}
+                {s.apps[app][t.key].join(", ")}
               </Text>
             ))}
           </View>

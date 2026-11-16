@@ -1,12 +1,12 @@
 import { Ionicons } from "@react-native-vector-icons/ionicons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Settings, useSettings, useUpdateSettings } from "@/src/api";
+import { APP_KEYS, APP_LABELS, AppFilters, AppKey, Settings, useSettings, useUpdateSettings } from "@/src/api";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { ErrorState, LoadingState } from "@/src/components/StateViews";
 import { fonts } from "@/src/fonts";
@@ -15,48 +15,38 @@ import { usesNativeTabs } from "@/src/navigation";
 import { DAY_NAMES, isValidTime } from "@/src/schedule";
 import { makeStyles, useTheme } from "@/src/theme";
 
+type AppForm = { enabled: boolean; min_price_per_km: string; min_fare: string; max_pickup_km: string; accept_texts: string; target_package: string };
+type NumKey = "min_price_per_km" | "min_fare" | "max_pickup_km";
 type Form = {
-  min_price_per_km: string;
-  min_fare: string;
-  max_pickup_km: string;
-  accept_texts: string;
-  target_package: string;
-  sync_99_enabled: boolean;
-  ninety_nine_package: string;
-  ride_active_texts: string;
-  ride_end_texts: string;
-  offline_texts: string;
-  online_texts: string;
+  apps: Record<AppKey, AppForm>;
   schedule_enabled: boolean;
   schedule_start: string;
   schedule_end: string;
   schedule_days: number[];
   alert_enabled: boolean;
 };
-type TextKey = Exclude<keyof Form, "sync_99_enabled" | "schedule_enabled" | "schedule_days" | "alert_enabled">;
-
-const LIST_KEYS = ["accept_texts", "ride_active_texts", "ride_end_texts", "offline_texts", "online_texts"] as const;
-const splitList = (s: string) => s.split(",").map((t) => t.trim()).filter(Boolean);
 
 const toStr = (n: number) => String(n).replace(".", ",");
 const toNum = (s: string) => {
   const v = parseFloat(s.replace(",", "."));
   return Number.isFinite(v) && v >= 0 ? v : NaN;
 };
+const splitList = (s: string) => s.split(",").map((t) => t.trim()).filter(Boolean);
+
+function appForm(a: AppFilters): AppForm {
+  return {
+    enabled: a.enabled,
+    min_price_per_km: toStr(a.min_price_per_km),
+    min_fare: toStr(a.min_fare),
+    max_pickup_km: toStr(a.max_pickup_km),
+    accept_texts: a.accept_texts.join(", "),
+    target_package: a.target_package,
+  };
+}
 
 function fromSettings(s: Settings): Form {
   return {
-    min_price_per_km: toStr(s.min_price_per_km),
-    min_fare: toStr(s.min_fare),
-    max_pickup_km: toStr(s.max_pickup_km),
-    accept_texts: s.accept_texts.join(", "),
-    target_package: s.target_package,
-    sync_99_enabled: s.sync_99_enabled,
-    ninety_nine_package: s.ninety_nine_package,
-    ride_active_texts: s.ride_active_texts.join(", "),
-    ride_end_texts: s.ride_end_texts.join(", "),
-    offline_texts: s.offline_texts.join(", "),
-    online_texts: s.online_texts.join(", "),
+    apps: { rapido: appForm(s.apps.rapido), moove: appForm(s.apps.moove) },
     schedule_enabled: s.schedule_enabled,
     schedule_start: s.schedule_start,
     schedule_end: s.schedule_end,
@@ -71,13 +61,18 @@ export default function Filtros() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{ app?: string }>();
   const settings = useSettings();
   const update = useUpdateSettings();
   const [form, setForm] = useState<Form | null>(null);
+  const [app, setApp] = useState<AppKey>("rapido");
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // Re-sync with server settings when the tab gains focus (Painel/Aprender may have changed them),
-  // but keep the user's unsaved edits.
+  useEffect(() => {
+    if (params.app === "rapido" || params.app === "moove") setApp(params.app);
+  }, [params.app]);
+
+  // Re-sync with server settings on focus, but keep the user's unsaved edits.
   const synced = useRef<string>("");
   const formRef = useRef<Form | null>(null);
   formRef.current = form;
@@ -85,7 +80,7 @@ export default function Filtros() {
     useCallback(() => {
       if (!settings.data) return;
       const cur = formRef.current;
-      if (cur && JSON.stringify(cur) !== synced.current) return; // dirty: keep edits
+      if (cur && JSON.stringify(cur) !== synced.current) return;
       const next = fromSettings(settings.data);
       synced.current = JSON.stringify(next);
       setForm(next);
@@ -103,29 +98,31 @@ export default function Filtros() {
   if (settings.isError || !form)
     return <View style={styles.screen}><ScreenHeader title="Filtros" /><ErrorState onRetry={() => settings.refetch()} /></View>;
 
-  const set = (k: TextKey) => (v: string) => setForm({ ...form, [k]: v });
-  const step = (k: "min_price_per_km" | "min_fare" | "max_pickup_km", delta: number, decimals: number) => {
-    const cur = toNum(form[k]);
-    const next = Math.max(0, (Number.isFinite(cur) ? cur : 0) + delta);
-    set(k)(toStr(Number(next.toFixed(decimals))));
+  const af = form.apps[app];
+  const setApp_ = (patch: Partial<AppForm>) => setForm({ ...form, apps: { ...form.apps, [app]: { ...af, ...patch } } });
+  const step = (k: NumKey, delta: number, decimals: number) => {
+    const cur = toNum(af[k]);
+    setApp_({ [k]: toStr(Number(Math.max(0, (Number.isFinite(cur) ? cur : 0) + delta).toFixed(decimals))) });
   };
 
   const save = () => {
-    const ppk = toNum(form.min_price_per_km);
-    const fare = toNum(form.min_fare);
-    const pickup = toNum(form.max_pickup_km);
-    if ([ppk, fare, pickup].some((v) => Number.isNaN(v))) {
-      setToast({ ok: false, msg: "Preencha valores numéricos válidos." });
-      return;
-    }
-    const lists = Object.fromEntries(LIST_KEYS.map((k) => [k, splitList(form[k])])) as Record<(typeof LIST_KEYS)[number], string[]>;
-    if (!lists.accept_texts.length) {
-      setToast({ ok: false, msg: "Informe ao menos um texto do botão Aceitar." });
-      return;
-    }
-    if (form.sync_99_enabled && (!lists.ride_active_texts.length || !lists.ride_end_texts.length || !lists.offline_texts.length || !lists.online_texts.length)) {
-      setToast({ ok: false, msg: "Preencha todos os textos da integração 99." });
-      return;
+    const apps: Partial<Record<AppKey, Partial<AppFilters>>> = {};
+    for (const k of APP_KEYS) {
+      const f = form.apps[k];
+      const vals = [toNum(f.min_price_per_km), toNum(f.min_fare), toNum(f.max_pickup_km)];
+      if (vals.some((v) => Number.isNaN(v))) {
+        setApp(k);
+        setToast({ ok: false, msg: `${APP_LABELS[k]}: preencha valores numéricos válidos.` });
+        return;
+      }
+      const texts = splitList(f.accept_texts);
+      if (!texts.length) {
+        setApp(k);
+        setToast({ ok: false, msg: `${APP_LABELS[k]}: informe ao menos um texto do botão Aceitar.` });
+        return;
+      }
+      // On/off is controlled on the Painel; don't overwrite it from a possibly stale form.
+      apps[k] = { min_price_per_km: vals[0], min_fare: vals[1], max_pickup_km: vals[2], accept_texts: texts, target_package: f.target_package.trim() };
     }
     if (form.schedule_enabled && (!isValidTime(form.schedule_start) || !isValidTime(form.schedule_end))) {
       setToast({ ok: false, msg: "Horário inválido. Use o formato HH:MM, ex.: 06:00" });
@@ -137,13 +134,7 @@ export default function Filtros() {
     }
     update.mutate(
       {
-        min_price_per_km: ppk,
-        min_fare: fare,
-        max_pickup_km: pickup,
-        ...lists,
-        target_package: form.target_package.trim(),
-        sync_99_enabled: form.sync_99_enabled,
-        ninety_nine_package: form.ninety_nine_package.trim(),
+        apps,
         schedule_enabled: form.schedule_enabled,
         schedule_start: isValidTime(form.schedule_start) ? form.schedule_start : undefined,
         schedule_end: isValidTime(form.schedule_end) ? form.schedule_end : undefined,
@@ -165,37 +156,64 @@ export default function Filtros() {
 
   return (
     <View style={styles.screen} testID="filtros-screen">
-      <ScreenHeader title="Filtros" subtitle="Regras para aceitar uma corrida" />
+      <ScreenHeader title="Filtros" subtitle="Cada app tem os seus próprios filtros" />
+      <View style={styles.segmentWrap}>
+        <View style={styles.segment}>
+          {APP_KEYS.map((k) => (
+            <Pressable key={k} testID={`filters-app-${k}`} onPress={() => setApp(k)} style={[styles.segBtn, app === k && styles.segBtnActive]}>
+              <Text style={[styles.segText, app === k && styles.segTextActive]}>{APP_LABELS[k]}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
       <KeyboardAwareScrollView bottomOffset={96} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.section}>CRITÉRIOS</Text>
+        <SwitchRow
+          id={`app-enabled-switch`}
+          label={`Auto-aceite no ${APP_LABELS[app]}`}
+          hint="Liga ou desliga o aceite automático só deste app."
+          value={settings.data?.apps[app].enabled ?? af.enabled}
+          onToggle={() => {
+            // Toggle saves immediately and always reflects the server value (never a stale form).
+            const next = !(settings.data?.apps[app].enabled ?? af.enabled);
+            update.mutate({ apps: { [app]: { enabled: next } } }, { onSuccess: (s) => pushConfig(s) });
+          }}
+        />
+        <Text style={styles.section}>CRITÉRIOS · {APP_LABELS[app].toUpperCase()}</Text>
         <NumberField
           id="min-price-per-km"
           label="Preço mínimo por km"
           unit="R$/km"
-          value={form.min_price_per_km}
-          onChange={set("min_price_per_km")}
+          value={af.min_price_per_km}
+          onChange={(v) => setApp_({ min_price_per_km: v })}
           onStep={(d) => step("min_price_per_km", d * 0.1, 2)}
           hint="Ex.: 2,00 aceita só corridas que pagam R$ 2,00 ou mais por km."
           highlight
         />
-        <NumberField
-          id="min-fare"
-          label="Valor mínimo da corrida"
-          unit="R$"
-          value={form.min_fare}
-          onChange={set("min_fare")}
-          onStep={(d) => step("min_fare", d, 0)}
-        />
+        <NumberField id="min-fare" label="Valor mínimo da corrida" unit="R$" value={af.min_fare} onChange={(v) => setApp_({ min_fare: v })} onStep={(d) => step("min_fare", d, 0)} />
         <NumberField
           id="max-pickup-km"
           label="Distância máxima até o passageiro"
           unit="km"
-          value={form.max_pickup_km}
-          onChange={set("max_pickup_km")}
+          value={af.max_pickup_km}
+          onChange={(v) => setApp_({ max_pickup_km: v })}
           onStep={(d) => step("max_pickup_km", d * 0.5, 1)}
         />
+        <TextField
+          id="accept-texts"
+          label="Textos do botão Aceitar"
+          value={af.accept_texts}
+          onChange={(v) => setApp_({ accept_texts: v })}
+          hint="Separe por vírgula. O app toca no primeiro botão com um desses textos."
+        />
+        <TextField
+          id="target-package"
+          label="Pacote do app (contém)"
+          value={af.target_package}
+          onChange={(v) => setApp_({ target_package: v })}
+          hint={`Parte do nome do pacote Android do ${APP_LABELS[app]}. Padrão: ${app}`}
+        />
 
-        <Text style={[styles.section, { marginTop: 8 }]}>HORÁRIO DE TRABALHO</Text>
+        <Text style={[styles.section, { marginTop: 8 }]}>HORÁRIO DE TRABALHO · TODOS OS APPS</Text>
         <SwitchRow
           id="schedule-switch"
           label="Aceitar só no meu horário"
@@ -206,32 +224,21 @@ export default function Filtros() {
         {form.schedule_enabled ? (
           <View style={styles.field}>
             <View style={styles.timeRow}>
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text style={styles.label}>Início</Text>
-                <TextInput
-                  testID="schedule-start-input"
-                  value={form.schedule_start}
-                  onChangeText={(v) => setForm({ ...form, schedule_start: maskTime(v) })}
-                  keyboardType="number-pad"
-                  maxLength={5}
-                  placeholder="06:00"
-                  placeholderTextColor={colors.muted}
-                  style={styles.timeInput}
-                />
-              </View>
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text style={styles.label}>Fim</Text>
-                <TextInput
-                  testID="schedule-end-input"
-                  value={form.schedule_end}
-                  onChangeText={(v) => setForm({ ...form, schedule_end: maskTime(v) })}
-                  keyboardType="number-pad"
-                  maxLength={5}
-                  placeholder="22:00"
-                  placeholderTextColor={colors.muted}
-                  style={styles.timeInput}
-                />
-              </View>
+              {(["schedule_start", "schedule_end"] as const).map((k) => (
+                <View key={k} style={{ flex: 1, gap: 6 }}>
+                  <Text style={styles.label}>{k === "schedule_start" ? "Início" : "Fim"}</Text>
+                  <TextInput
+                    testID={k === "schedule_start" ? "schedule-start-input" : "schedule-end-input"}
+                    value={form[k]}
+                    onChangeText={(v) => setForm({ ...form, [k]: maskTime(v) })}
+                    keyboardType="number-pad"
+                    maxLength={5}
+                    placeholder={k === "schedule_start" ? "06:00" : "22:00"}
+                    placeholderTextColor={colors.muted}
+                    style={styles.timeInput}
+                  />
+                </View>
+              ))}
             </View>
             <Text style={styles.label}>Dias</Text>
             <View style={styles.daysRow}>
@@ -241,13 +248,8 @@ export default function Filtros() {
                   <Pressable
                     key={i}
                     testID={`schedule-day-${i}`}
-                    accessibilityLabel={DAY_NAMES[i]}
-                    onPress={() =>
-                      setForm({
-                        ...form,
-                        schedule_days: active ? form.schedule_days.filter((x) => x !== i) : [...form.schedule_days, i].sort(),
-                      })
-                    }
+                    accessibilityLabel={d}
+                    onPress={() => setForm({ ...form, schedule_days: active ? form.schedule_days.filter((x) => x !== i) : [...form.schedule_days, i].sort() })}
                     style={[styles.dayChip, active && styles.dayChipActive]}
                   >
                     <Text style={[styles.dayText, active && styles.dayTextActive]}>{d}</Text>
@@ -269,54 +271,14 @@ export default function Filtros() {
         />
 
         <Text style={[styles.section, { marginTop: 8 }]}>LEITURA DA TELA (ANDROID)</Text>
-        <Pressable testID="open-learning-button" onPress={() => router.push("/aprender")} style={[styles.field, styles.switchRow]}>
+        <Pressable testID="open-learning-button" onPress={() => router.push(`/aprender?app=${app}`)} style={[styles.field, styles.switchRow]}>
           <Ionicons name="scan-outline" size={24} color={colors.brandPrimary} />
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>Modo aprendizado</Text>
-            <Text style={styles.hint}>Leia a tela real do RapidoCar e da 99 e toque nos textos para configurar os botões.</Text>
+            <Text style={styles.hint}>Leia a tela real do RapidoCar ou do MooveCar e toque no texto do botão Aceitar.</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>
-        <TextField
-          id="accept-texts"
-          label="Textos do botão Aceitar"
-          value={form.accept_texts}
-          onChange={set("accept_texts")}
-          hint="Separe por vírgula. O app toca no primeiro botão com um desses textos."
-        />
-        <TextField
-          id="target-package"
-          label="Pacote do app alvo (contém)"
-          value={form.target_package}
-          onChange={set("target_package")}
-          hint="Parte do nome do pacote Android do RapidoCar. Padrão: rapido"
-        />
-
-        <Text style={[styles.section, { marginTop: 8 }]}>INTEGRAÇÃO 99</Text>
-        <Pressable
-          testID="sync-99-switch"
-          accessibilityRole="switch"
-          accessibilityState={{ checked: form.sync_99_enabled }}
-          onPress={() => setForm({ ...form, sync_99_enabled: !form.sync_99_enabled })}
-          style={[styles.field, styles.switchRow, form.sync_99_enabled && styles.fieldHighlight]}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Ficar offline no RapidoCar durante corrida da 99</Text>
-            <Text style={styles.hint}>Ao aceitar na 99, o bot desconecta o RapidoCar. Quando a corrida acabar, reconecta.</Text>
-          </View>
-          <View style={[styles.switchTrack, form.sync_99_enabled && styles.switchTrackOn]}>
-            <View style={[styles.switchThumb, form.sync_99_enabled && styles.switchThumbOn]} />
-          </View>
-        </Pressable>
-        {form.sync_99_enabled ? (
-          <>
-            <TextField id="ninety-nine-package" label="Pacote do app 99 (contém)" value={form.ninety_nine_package} onChange={set("ninety_nine_package")} hint="Padrão: app99 (99 Motorista)" />
-            <TextField id="ride-active-texts" label="Textos que indicam corrida em andamento na 99" value={form.ride_active_texts} onChange={set("ride_active_texts")} hint="Separe por vírgula." />
-            <TextField id="ride-end-texts" label="Textos que indicam fim da corrida na 99" value={form.ride_end_texts} onChange={set("ride_end_texts")} hint="Separe por vírgula." />
-            <TextField id="offline-texts" label="Botão para ficar offline no RapidoCar" value={form.offline_texts} onChange={set("offline_texts")} hint="Separe por vírgula." />
-            <TextField id="online-texts" label="Botão para ficar online no RapidoCar" value={form.online_texts} onChange={set("online_texts")} hint="Separe por vírgula." />
-          </>
-        ) : null}
       </KeyboardAwareScrollView>
 
       {toast ? (
@@ -360,16 +322,7 @@ function SwitchRow(props: { id: string; label: string; hint: string; value: bool
   );
 }
 
-function NumberField(props: {
-  id: string;
-  label: string;
-  unit: string;
-  value: string;
-  onChange: (v: string) => void;
-  onStep: (dir: 1 | -1) => void;
-  hint?: string;
-  highlight?: boolean;
-}) {
+function NumberField(props: { id: string; label: string; unit: string; value: string; onChange: (v: string) => void; onStep: (dir: 1 | -1) => void; hint?: string; highlight?: boolean }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
@@ -380,14 +333,7 @@ function NumberField(props: {
           <Ionicons name="remove" size={24} color={colors.onSurface} />
         </Pressable>
         <View style={styles.numBox}>
-          <TextInput
-            testID={`${props.id}-input`}
-            value={props.value}
-            onChangeText={props.onChange}
-            keyboardType="decimal-pad"
-            style={styles.numInput}
-            selectionColor={colors.brandPrimary}
-          />
+          <TextInput testID={`${props.id}-input`} value={props.value} onChangeText={props.onChange} keyboardType="decimal-pad" style={styles.numInput} selectionColor={colors.brandPrimary} />
           <Text style={styles.unit}>{props.unit}</Text>
         </View>
         <Pressable testID={`${props.id}-increase`} onPress={() => props.onStep(1)} style={styles.stepBtn}>
@@ -422,6 +368,12 @@ function TextField(props: { id: string; label: string; value: string; onChange: 
 
 const useStyles = makeStyles((c) => ({
   screen: { flex: 1, backgroundColor: c.surface },
+  segmentWrap: { paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.divider },
+  segment: { flexDirection: "row", backgroundColor: c.surfaceSecondary, borderRadius: 8, padding: 4, gap: 4 },
+  segBtn: { flex: 1, height: 40, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  segBtnActive: { backgroundColor: c.brandPrimary },
+  segText: { fontFamily: fonts.bodySemi, fontSize: 14, color: c.onSurfaceSecondary },
+  segTextActive: { color: c.onBrandPrimary },
   content: { padding: 16, gap: 12, paddingBottom: 24 },
   section: { fontFamily: fonts.bodySemi, fontSize: 12, letterSpacing: 2, color: c.muted },
   field: { backgroundColor: c.surfaceSecondary, borderRadius: 12, padding: 12, gap: 8, borderWidth: 1, borderColor: c.border },
