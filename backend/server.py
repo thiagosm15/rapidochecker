@@ -213,13 +213,19 @@ class User(BaseDocument):
     created_at: str = Field(default_factory=now_iso)
     status_changed_at: Optional[str] = None
     last_login_at: Optional[str] = None
+    expires_at: Optional[str] = None  # None = no time limit
+
+    @property
+    def expired(self) -> bool:
+        return bool(self.expires_at) and self.expires_at <= now_iso()
 
     def public(self) -> dict:
-        return {"id": self.id, "cpf": mask_cpf(self.cpf), "name": self.name, "status": self.status}
+        return {"id": self.id, "cpf": mask_cpf(self.cpf), "name": self.name, "status": self.status,
+                "expires_at": self.expires_at}
 
     def admin_view(self) -> dict:
         return {**self.public(), "created_at": self.created_at, "status_changed_at": self.status_changed_at,
-                "last_login_at": self.last_login_at}
+                "last_login_at": self.last_login_at, "expired": self.expired}
 
 
 class CpfLoginIn(BaseModel):
@@ -233,6 +239,8 @@ class AdminLoginIn(BaseModel):
 class AdminUserUpdate(BaseModel):
     status: Optional[UserStatus] = None
     name: Optional[str] = Field(default=None, max_length=80)
+    # Approve/renew for N days from now; 0 = no time limit.
+    access_days: Optional[int] = Field(default=None, ge=0, le=3650)
 
 
 # ---------- Rate limiting (stored in Mongo, auto-expires) ----------
@@ -291,6 +299,8 @@ async def current_user(credentials: Annotated[Optional[HTTPAuthorizationCredenti
     if user.status != "approved":
         # Admin revoked access -> app signs out
         raise HTTPException(status_code=401, detail="Seu acesso não está liberado")
+    if user.expired:
+        raise HTTPException(status_code=401, detail="Seu prazo de acesso venceu. Fale com o responsável.")
     return user
 
 
@@ -355,6 +365,8 @@ async def login_cpf(body: CpfLoginIn, request: Request):
     user = User.from_mongo(doc)
     if user.status != "approved":
         return {"status": user.status}
+    if user.expired:
+        return {"status": "expired"}
     await db.users.update_one({"_id": doc["_id"]}, {"$set": {"last_login_at": now_iso()}})
     return {"status": "approved", "access_token": issue_token(user.id, "driver", timedelta(days=TOKEN_DAYS)),
             "token_type": "bearer", "user": user.public()}
@@ -429,6 +441,28 @@ async def list_rides(user: CurrentUser, status: Literal["all", "accepted", "reje
     return [Ride.from_mongo(d).to_api() for d in docs]
 
 
+@api_router.get("/rides/summary")
+async def rides_summary(user: CurrentUser, since: str = Query(..., description="Start of the driver's local day (ISO)")):
+    """Accepted/rejected counts per app since the given moment (the app sends local midnight)."""
+    try:
+        start = to_utc_iso(since)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Data inválida")
+    out = {k: {"accepted": 0, "rejected": 0, "earned": 0.0} for k in ("rapido", "moove")}
+    pipeline = [
+        {"$match": {"user_id": user.id, "created_at": {"$gte": start}, "app": {"$in": list(out)}}},
+        {"$group": {"_id": {"app": "$app", "accepted": "$accepted"}, "n": {"$sum": 1}, "earned": {"$sum": "$price"}}},
+    ]
+    async for g in db.rides.aggregate(pipeline):
+        o = out[g["_id"]["app"]]
+        if g["_id"]["accepted"]:
+            o["accepted"] = g["n"]
+            o["earned"] = round(g["earned"], 2)
+        else:
+            o["rejected"] = g["n"]
+    return out
+
+
 @api_router.delete("/rides")
 async def clear_rides(user: CurrentUser):
     res = await db.rides.delete_many({"user_id": user.id})
@@ -463,6 +497,10 @@ async def admin_update_user(user_id: str, body: AdminUserUpdate, _: CurrentAdmin
     if not ObjectId.is_valid(user_id):
         raise HTTPException(status_code=404, detail="Motorista não encontrado")
     changes = body.model_dump(exclude_none=True)
+    days = changes.pop("access_days", None)
+    if days is not None:
+        changes["status"] = "approved"
+        changes["expires_at"] = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat() if days else None
     if "status" in changes:
         changes["status_changed_at"] = now_iso()
     if "name" in changes:

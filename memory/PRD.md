@@ -45,3 +45,9 @@ Follow-up: "Adicione ao bot para ele ficar off-line na rapidocar sempre que acei
 - Added MooveCar: the Android service reads RapidoCar and MooveCar, each with its own filters (settings.apps.rapido / settings.apps.moove)
 - Rate limits use the real client IP (CF-Connecting-IP / XFF[-3]); admin login has a global limit of 10 failures per 15 min
 - Root cause of the user's error: the old APK had no login but called the new auth-protected backend → new build required
+
+## Iteration 9 (Jun 2026)
+- Admin grants access per driver: 7/15/30 days or no limit (PATCH /api/admin/users/{id} {access_days}); expired drivers get login status "expired" and 401 on API.
+- Painel "Hoje" card: accepted/rejected per app (GET /api/rides/summary?since=<local midnight ISO>).
+- New app icon/splash/login logo (RapidoChecker artwork, white background).
+- Admin password changed via secure secrets card (ADMIN_PASSWORD).

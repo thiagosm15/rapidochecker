@@ -94,10 +94,10 @@ export function setOnUnauthorized(fn: (() => void) | null) {
 }
 
 export type UserStatus = "pending" | "approved" | "blocked";
-export type User = { id: string; cpf: string; name: string; status: UserStatus };
+export type User = { id: string; cpf: string; name: string; status: UserStatus; expires_at: string | null };
 export type CpfLoginResponse =
   | { status: "approved"; access_token: string; token_type: string; user: User }
-  | { status: "pending" | "blocked" };
+  | { status: "pending" | "blocked" | "expired" };
 
 export const PRIVACY_URL = `${BASE}/privacy`;
 
@@ -107,13 +107,13 @@ export const apiDeleteAccount = () => req<{ deleted: boolean }>("/auth/account",
 export const apiClearHistory = () => req<{ deleted: number }>("/rides", { method: "DELETE" });
 
 // ---------- Admin ----------
-export type AdminUser = User & { created_at: string; status_changed_at: string | null; last_login_at: string | null };
+export type AdminUser = User & { created_at: string; status_changed_at: string | null; last_login_at: string | null; expired: boolean };
 export type AdminUsers = { users: AdminUser[]; counts: Record<UserStatus, number> };
 
 export const adminLogin = (password: string) =>
   adminReq<{ access_token: string }>("/admin/login", "", { method: "POST", body: JSON.stringify({ password }) });
 export const adminListUsers = (token: string, status: "all" | UserStatus) => adminReq<AdminUsers>(`/admin/users?status=${status}`, token);
-export const adminUpdateUser = (token: string, id: string, body: { status?: UserStatus; name?: string }) =>
+export const adminUpdateUser = (token: string, id: string, body: { status?: UserStatus; name?: string; access_days?: number }) =>
   adminReq<AdminUser>(`/admin/users/${id}`, token, { method: "PATCH", body: JSON.stringify(body) });
 export const adminDeleteUser = (token: string, id: string) => adminReq<{ deleted: boolean }>(`/admin/users/${id}`, token, { method: "DELETE" });
 
@@ -155,6 +155,19 @@ export function useUpdateSettings() {
 
 export function useRides(status: RideStatus, app: RideAppFilter) {
   return useQuery({ queryKey: ["rides", status, app], queryFn: () => req<Ride[]>(`/rides?status=${status}&app=${app}`) });
+}
+
+export type DaySummary = Record<AppKey, { accepted: number; rejected: number; earned: number }>;
+
+export function useTodaySummary() {
+  return useQuery({
+    queryKey: ["rides", "summary"],
+    queryFn: () => {
+      const midnight = new Date();
+      midnight.setHours(0, 0, 0, 0);
+      return req<DaySummary>(`/rides/summary?since=${encodeURIComponent(midnight.toISOString())}`);
+    },
+  });
 }
 
 export function uploadRides(items: RideIn[]) {

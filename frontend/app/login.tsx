@@ -2,7 +2,7 @@ import { Ionicons } from "@react-native-vector-icons/ionicons";
 import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,6 +38,8 @@ export default function Login() {
       if (res.status === "approved") await signIn(res.access_token, res.user);
       else if (res.status === "pending")
         setNotice({ tone: "warning", title: "Aguardando liberação", text: "Seu CPF foi registrado. Assim que o acesso for liberado, toque em Entrar novamente." });
+      else if (res.status === "expired")
+        setNotice({ tone: "error", title: "Prazo de acesso vencido", text: "Seu período de acesso terminou. Fale com o responsável para renovar." });
       else setNotice({ tone: "error", title: "Acesso bloqueado", text: "Este CPF não tem acesso ao app. Fale com o responsável." });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar.");
@@ -57,7 +59,7 @@ export default function Login() {
       >
         <Animated.View entering={FadeIn.duration(400)} style={styles.brand}>
           <View style={styles.logo}>
-            <Ionicons name="flash" size={32} color={colors.onBrandPrimary} />
+            <Image source={require("@/assets/images/logo.png")} style={styles.logoImg} resizeMode="contain" testID="app-logo" />
           </View>
           <Text style={styles.title}>AutoCorrida</Text>
           <Text style={styles.subtitle}>Auto-aceite de corridas no RapidoCar e no MooveCar.</Text>
@@ -112,7 +114,9 @@ const useStyles = makeStyles((c) => ({
   screen: { flex: 1, backgroundColor: c.surface },
   content: { paddingHorizontal: 24, gap: 24, flexGrow: 1 },
   brand: { gap: 8 },
-  logo: { width: 64, height: 64, borderRadius: 12, backgroundColor: c.brandPrimary, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  // Logo artwork has a white background, so it sits on a white card in both themes.
+  logo: { width: 160, height: 128, borderRadius: 16, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", padding: 12, marginBottom: 8 },
+  logoImg: { width: "100%", height: "100%" },
   title: { fontFamily: fonts.display, fontSize: 44, lineHeight: 48, color: c.onSurface },
   subtitle: { fontFamily: fonts.body, fontSize: 15, color: c.onSurfaceSecondary },
   form: { gap: 12 },

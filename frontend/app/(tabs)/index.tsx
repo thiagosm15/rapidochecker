@@ -7,7 +7,7 @@ import { AppState, Platform, Pressable, RefreshControl, ScrollView, Text, View }
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { APP_KEYS, APP_LABELS, AppFilters, AppKey, brl, num, uploadRides, useSettings, useUpdateSettings } from "@/src/api";
+import { APP_KEYS, APP_LABELS, AppFilters, AppKey, brl, DaySummary, num, uploadRides, useSettings, useTodaySummary, useUpdateSettings } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { ErrorState, LoadingState } from "@/src/components/StateViews";
@@ -35,6 +35,7 @@ export default function Painel() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const settings = useSettings();
+  const today = useTodaySummary();
   const update = useUpdateSettings();
   const [serviceOn, setServiceOn] = useState(isServiceEnabled());
   const [refreshing, setRefreshing] = useState(false);
@@ -144,6 +145,8 @@ export default function Painel() {
           ) : null}
         </View>
 
+        {today.data ? <TodayCard data={today.data} /> : null}
+
         {APP_KEYS.map((key, i) => (
           <Animated.View key={key} entering={FadeInDown.delay(i * 80)}>
             <AppCard
@@ -226,6 +229,31 @@ function AppCard(props: {
   );
 }
 
+function TodayCard({ data }: { data: DaySummary }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  return (
+    <View style={styles.todayCard} testID="today-summary">
+      <Text style={styles.todayTitle}>Hoje</Text>
+      {APP_KEYS.map((key) => (
+        <View key={key} style={styles.todayRow} testID={`today-${key}`}>
+          <Text style={styles.todayApp}>{APP_LABELS[key]}</Text>
+          <View style={styles.todayStat}>
+            <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+            <Text style={styles.todayValue} testID={`today-accepted-${key}`}>{data[key].accepted}</Text>
+            <Text style={styles.todayLabel}>aceitas</Text>
+          </View>
+          <View style={styles.todayStat}>
+            <Ionicons name="close-circle" size={16} color={colors.error} />
+            <Text style={styles.todayValue} testID={`today-rejected-${key}`}>{data[key].rejected}</Text>
+            <Text style={styles.todayLabel}>recusadas</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function SummaryItem({ label, value }: { label: string; value: string }) {
   const styles = useStyles();
   return (
@@ -256,6 +284,13 @@ const useStyles = makeStyles((c) => ({
   summary: { flexDirection: "row", alignItems: "center", padding: 12, gap: 8, minHeight: 56 },
   summaryLabel: { fontFamily: fonts.body, fontSize: 11, color: c.onSurfaceSecondary },
   summaryValue: { fontFamily: fonts.display, fontSize: 18, color: c.onSurface },
+  todayCard: { borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceSecondary, padding: 12, gap: 8 },
+  todayTitle: { fontFamily: fonts.bodySemi, fontSize: 12, letterSpacing: 2, color: c.onSurfaceSecondary },
+  todayRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 32 },
+  todayApp: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 14, color: c.onSurface },
+  todayStat: { flexDirection: "row", alignItems: "center", gap: 4, minWidth: 96 },
+  todayValue: { fontFamily: fonts.display, fontSize: 20, color: c.onSurface },
+  todayLabel: { fontFamily: fonts.body, fontSize: 12, color: c.onSurfaceSecondary },
   vDivider: { width: 1, alignSelf: "stretch", backgroundColor: c.border },
   schedulePill: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 12, borderRadius: 8, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border },
   scheduleText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 13, color: c.onSurfaceTertiary },

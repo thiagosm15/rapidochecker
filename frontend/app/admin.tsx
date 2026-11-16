@@ -17,6 +17,12 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "blocked", label: "Bloqueados" },
   { key: "all", label: "Todos" },
 ];
+const GRANTS = [
+  { days: 7, label: "7 dias" },
+  { days: 15, label: "15 dias" },
+  { days: 30, label: "30 dias" },
+  { days: 0, label: "Sem prazo" },
+];
 const STATUS_LABEL: Record<UserStatus, string> = { pending: "Pendente", approved: "Liberado", blocked: "Bloqueado" };
 
 function fmt(iso: string | null) {
@@ -77,7 +83,7 @@ export default function Admin() {
     }
   };
 
-  const act = async (u: AdminUser, body: { status?: UserStatus; name?: string }) => {
+  const act = async (u: AdminUser, body: { status?: UserStatus; name?: string; access_days?: number }) => {
     if (!token) return;
     setBusyId(u.id);
     try {
@@ -193,7 +199,7 @@ export default function Admin() {
             user={u}
             busy={busyId === u.id}
             confirmingDelete={confirmDelete === u.id}
-            onApprove={() => act(u, { status: "approved" })}
+            onGrant={(days) => act(u, { access_days: days })}
             onBlock={() => act(u, { status: "blocked" })}
             onRename={(name) => act(u, { name })}
             onAskDelete={() => setConfirmDelete(confirmDelete === u.id ? null : u.id)}
@@ -209,7 +215,7 @@ function UserCard(props: {
   user: AdminUser;
   busy: boolean;
   confirmingDelete: boolean;
-  onApprove: () => void;
+  onGrant: (days: number) => void;
   onBlock: () => void;
   onRename: (name: string) => void;
   onAskDelete: () => void;
@@ -219,13 +225,17 @@ function UserCard(props: {
   const styles = useStyles();
   const u = props.user;
   const [name, setName] = useState(u.name);
-  const tone = u.status === "approved" ? colors.success : u.status === "blocked" ? colors.error : colors.warning;
+  const tone = u.status === "approved" && !u.expired ? colors.success : u.status === "pending" ? colors.warning : colors.error;
+  const statusLabel = u.status === "approved" && u.expired ? "Vencido" : STATUS_LABEL[u.status];
+  const validity =
+    u.status !== "approved" ? null : u.expires_at ? `${u.expired ? "Venceu em" : "Vence em"} ${fmt(u.expires_at)}` : "Sem prazo de vencimento";
+  const renew = u.status === "approved" && !u.expired;
 
   return (
     <Animated.View entering={FadeInDown} style={[styles.card, { borderLeftColor: tone }]} testID={`admin-user-${u.id}`}>
       <View style={styles.cardTop}>
         <Text style={styles.cpf} testID={`admin-user-cpf-${u.id}`}>{u.cpf}</Text>
-        <Text style={[styles.status, { color: tone }]} testID={`admin-user-status-${u.id}`}>{STATUS_LABEL[u.status]}</Text>
+        <Text style={[styles.status, { color: tone }]} testID={`admin-user-status-${u.id}`}>{statusLabel}</Text>
       </View>
       <TextInput
         testID={`admin-user-name-${u.id}`}
@@ -237,12 +247,24 @@ function UserCard(props: {
         style={styles.nameInput}
       />
       <Text style={styles.meta}>Pedido em {fmt(u.created_at)} · Último acesso {fmt(u.last_login_at)}</Text>
-      <View style={styles.actions}>
-        {u.status !== "approved" ? (
-          <Pressable testID={`admin-approve-${u.id}`} disabled={props.busy} onPress={props.onApprove} style={[styles.actBtn, { backgroundColor: colors.success }]}>
-            <Text style={[styles.actText, { color: colors.onSuccess }]}>Liberar</Text>
+      {validity ? (
+        <Text style={[styles.validity, { color: tone }]} testID={`admin-user-validity-${u.id}`}>{validity}</Text>
+      ) : null}
+      <Text style={styles.grantLabel}>{renew ? "Renovar a partir de hoje:" : "Liberar por:"}</Text>
+      <View style={styles.grantRow}>
+        {GRANTS.map((g) => (
+          <Pressable
+            key={g.days}
+            testID={`admin-grant-${g.days}-${u.id}`}
+            disabled={props.busy}
+            onPress={() => props.onGrant(g.days)}
+            style={[styles.grantBtn, { backgroundColor: renew ? colors.surface : colors.success, borderColor: renew ? colors.border : colors.success }]}
+          >
+            <Text style={[styles.grantText, { color: renew ? colors.onSurface : colors.onSuccess }]}>{g.label}</Text>
           </Pressable>
-        ) : null}
+        ))}
+      </View>
+      <View style={styles.actions}>
         {u.status !== "blocked" ? (
           <Pressable testID={`admin-block-${u.id}`} disabled={props.busy} onPress={props.onBlock} style={[styles.actBtn, { backgroundColor: colors.surfaceTertiary }]}>
             <Text style={[styles.actText, { color: colors.onSurface }]}>Bloquear</Text>
@@ -294,6 +316,11 @@ const useStyles = makeStyles((c) => ({
   nameInput: { height: 44, borderRadius: 8, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12, color: c.onSurface, fontFamily: fonts.body, fontSize: 14 },
   meta: { fontFamily: fonts.body, fontSize: 11, color: c.muted },
   actions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  validity: { fontFamily: fonts.bodySemi, fontSize: 13 },
+  grantLabel: { fontFamily: fonts.bodyMedium, fontSize: 12, color: c.onSurfaceTertiary },
+  grantRow: { flexDirection: "row", gap: 6 },
+  grantBtn: { flex: 1, height: 44, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  grantText: { fontFamily: fonts.bodySemi, fontSize: 13 },
   actBtn: { height: 44, paddingHorizontal: 16, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   actText: { fontFamily: fonts.bodySemi, fontSize: 14 },
   trashBtn: { width: 44, height: 44, borderRadius: 8, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: c.border },
